@@ -6,30 +6,34 @@
     <title>Showtime Manager</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind CSS Configuration -->
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+      }
+    </script>
     <!-- React & ReactDOM CDNs -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel CDN (for in-browser JSX transformation - not for production) -->
+    <!-- Babel CDN (for in-browser JSX transformation) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- PapaParse CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <!-- html2canvas CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
-        /* Custom styles for better aesthetics beyond Tailwind defaults */
+        /* Custom styles for better aesthetics and smooth transitions */
         body {
             font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
-        /* Ensure all elements have rounded corners */
-        .rounded-md, .rounded-lg, .rounded-full {
-            border-radius: 0.375rem; /* Tailwind's default md rounded */
-        }
-        /* Specific adjustments for inputs and buttons for consistent look */
-        input[type="text"], input[type="number"], input[type="search"], textarea, select {
+        /* Ensure all elements have rounded corners and smooth transitions */
+        .rounded-md, .rounded-lg, .rounded-full, button, input, select, textarea {
             border-radius: 0.375rem;
         }
-        button {
-            border-radius: 0.375rem;
+        button, a {
+            transition: all 0.2s ease-in-out;
         }
         /* Excel-like grid styles */
         .excel-table td, .excel-table th {
@@ -39,6 +43,7 @@
             font-size: 12px;
             white-space: nowrap;
             position: relative;
+            transition: background-color 0.15s ease-in-out;
         }
         .dark .excel-table td, .dark .excel-table th {
             border-color: #4a5568; /* gray-600 */
@@ -52,26 +57,37 @@
         }
         .drag-over {
             background-color: #ebf4ff !important; /* blue-100 */
+            box-shadow: inset 0 0 0 2px #3b82f6;
         }
         .dark .drag-over {
             background-color: #2b6cb0 !important; /* blue-800 */
         }
+        /* Smoother active cell indicator */
         .active-cell::after {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: -1px;
+            left: -1px;
+            right: -1px;
+            bottom: -1px;
             border: 2px solid #3b82f6; /* blue-500 */
             pointer-events: none;
+            transition: all 0.1s ease-in-out;
+            border-radius: 1px;
         }
-
+        /* Add a subtle animation to modal pop-ups */
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .modal-content-animation {
+            animation: fadeInScale 0.2s ease-out forwards;
+        }
     </style>
 </head>
 <body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
     <div id="root">
-        <!-- Your React app will be mounted here -->
+        <!-- App loading state -->
         <div class="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">Loading Application...</div>
     </div>
 
@@ -83,22 +99,16 @@
             const m = minutes % 60;
             return `${h}h ${m}m`;
         };
-
         const minutesToTime = (totalMinutes) => {
             if (isNaN(totalMinutes)) return "00:00";
             const h = Math.floor(totalMinutes / 60) % 24;
             const m = Math.round(totalMinutes % 60);
-            
             const ampm = h >= 12 ? 'PM' : 'AM';
             const twelveHour = h % 12 === 0 ? 12 : h % 12;
-            
             return `${String(twelveHour).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
         };
-
         const timeToMinutes = (timeString) => {
             if (!timeString || typeof timeString !== 'string') return null;
-            
-            // Try to parse HH:MM AM/PM format
             const formattedString = timeString.toUpperCase().replace(/\s/g, '');
             const match12hr = formattedString.match(/^(\d{1,2}):(\d{2})(AM|PM)$/);
             if (match12hr) {
@@ -110,8 +120,6 @@
                 if (modifier === 'PM' && hours < 12) hours += 12;
                 return hours * 60 + minutes;
             }
-
-            // Try to parse 24-hour HH:MM format
             const match24hr = timeString.match(/^(\d{1,2}):(\d{2})$/);
             if (match24hr) {
                 let [, hours, minutes] = match24hr;
@@ -120,22 +128,10 @@
                 if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
                 return hours * 60 + minutes;
             }
-
-            return null; // Return null if no format matches
+            return null;
         };
-
-
-        const getInitials = (title = '') => {
-            return title
-                .split(' ')
-                .map((word) => word[0])
-                .filter((char) => /[a-zA-Z0-9]/.test(char))
-                .join('')
-                .toUpperCase();
-        };
-
-        const downloadCSV = (content, fileName) => {
-            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+        const downloadFile = (content, fileName, contentType) => {
+            const blob = new Blob([content], { type: contentType });
             const link = document.createElement("a");
             if (link.download !== undefined) {
                 const url = URL.createObjectURL(blob);
@@ -147,8 +143,12 @@
                 document.body.removeChild(link);
             }
         };
+        const downloadCSV = (content, fileName) => {
+             downloadFile(content, fileName, 'text/csv;charset=utf-8;');
+        };
 
-        // --- Lucide React Icon replacements (simple SVGs or text) ---
+
+        // --- Lucide React Icon replacements ---
         const FilmIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-film"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h18"/><path d="M3 12h18"/><path d="M3 16.5h18"/><path d="M17 3v18"/></svg>;
         const Wand2Icon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-wand-2"><path d="M21 7H14"/><path d="M10.2 14.2 3 21m0 0 .7-.7a2.12 2.12 0 0 1 3 3l-.7.7ZM14 10.2 21 3m0 0-.7.7a2.12 2.12 0 0 1-3 3l.7-.7Z"/></svg>;
         const PlusIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-plus"><path d="M12 5v14"/><path d="M5 12h14"/></svg>;
@@ -161,10 +161,11 @@
         const RefreshCwIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-refresh-cw"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>;
         const UndoIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-undo"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>;
         const RedoIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-redo"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>;
-        const ZoomInIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-zoom-in"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="11" x2="11" y1="8" y2="14"/><line x1="8" x2="14" y1="11" y2="11"/></svg>;
-        const ZoomOutIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-zoom-out"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="8" x2="14" y1="11" y2="11"/></svg>;
         const TargetIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-target"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>;
         const ImageIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-image"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>;
+        const MailIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-mail"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>;
+        const SunIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>;
+        const MoonIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>;
 
 
         // --- Components ---
@@ -173,7 +174,7 @@
             if (!isOpen) return null;
             return (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 transition-opacity duration-300">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl transform transition-all duration-300 scale-95 animate-in fade-in-0 zoom-in-95">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl modal-content-animation">
                         <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h3>
                             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-full p-1 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800"><XIcon className="w-6 h-6" /></button>
@@ -192,7 +193,7 @@
                         <AlertTriangleIcon className="mx-auto h-12 w-12 text-yellow-500" />
                         <p className="mt-4 text-gray-700 dark:text-gray-300">{message}</p>
                         <div className="mt-6">
-                            <button onClick={onClose} className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">OK</button>
+                            <button onClick={onClose} className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">OK</button>
                         </div>
                     </div>
                 </Modal>
@@ -202,9 +203,9 @@
         const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", confirmColor = "red" }) => {
             if (!isOpen) return null;
             const colorClasses = {
-                red: 'bg-red-600 hover:bg-red-700',
-                blue: 'bg-blue-600 hover:bg-blue-700',
-                green: 'bg-green-600 hover:bg-green-700',
+                red: 'bg-red-600 hover:bg-red-700 focus:ring-red-500',
+                blue: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
+                green: 'bg-green-600 hover:bg-green-700 focus:ring-green-500',
             };
             return (
                 <Modal isOpen={isOpen} onClose={onClose} title={title}>
@@ -214,15 +215,13 @@
                             <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
                         </div>
                         <div className="items-center px-4 py-3 space-x-2">
-                            <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
-                            <button onClick={onConfirm} className={`px-4 py-2 text-white rounded-md ${colorClasses[confirmColor]}`}>{confirmText}</button>
+                            <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400">Cancel</button>
+                            <button onClick={onConfirm} className={`px-4 py-2 text-white rounded-md ${colorClasses[confirmColor]} focus:outline-none focus:ring-2 focus:ring-offset-2`}>{confirmText}</button>
                         </div>
                     </div>
                 </Modal>
             );
         };
-
-
         const CinemaForm = ({ onSave, onCancel, initialData = null }) => {
             const [cinemaName, setCinemaName] = React.useState(initialData?.name || '');
             const [programmerName, setProgrammerName] = React.useState(initialData?.programmerName || '');
@@ -266,8 +265,18 @@
                             <input type="text" value={programmerName} onChange={e => setProgrammerName(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"/>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Daily Start Time (minutes from midnight, e.g., 540 for 9:00 AM)</label>
-                            <input type="number" value={dailyStartTime} onChange={e => setDailyStartTime(e.target.value)} required className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"/>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Default Daily Start Time</label>
+                             <select 
+                                value={dailyStartTime} 
+                                onChange={e => setDailyStartTime(Number(e.target.value))} 
+                                required 
+                                className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            >
+                                {Array.from({ length: (13 - 5) * 4 + 1 }).map((_, i) => {
+                                    const totalMinutes = (5 * 60) + (i * 15);
+                                    return <option key={totalMinutes} value={totalMinutes}>{minutesToTime(totalMinutes)}</option>
+                                })}
+                            </select>
                         </div>
                         <h4 className="text-md font-semibold border-t pt-4 dark:border-gray-600">Screens</h4>
                         {screens.map((screen, index) => (
@@ -284,7 +293,6 @@
                 </>
             );
         };
-
         const UploadCSVForm = ({ onSave, onCancel, itemType }) => {
             const [file, setFile] = React.useState(null);
             const [error, setError] = React.useState('');
@@ -293,7 +301,7 @@
             
             const handleDownloadTemplate = () => {
                 const cinemaContent = "cinema_name,programmer_name,screen_name,screen_format,screen_capacity,daily_start_time\n";
-                const movieContent = "title,duration,censor_rating,format,tat,is_regional\n"; // Added tat, is_regional
+                const movieContent = "title,duration,censor_rating,format,tat,is_regional\n";
                 downloadCSV(itemType === 'Cinemas' ? cinemaContent : movieContent, `${itemType.toLowerCase()}_template.csv`);
             };
 
@@ -330,8 +338,8 @@
                                     duration: Number(row.duration) || 0,
                                     censorRating: row.censor_rating || '',
                                     format: row.format || '2D',
-                                    tat: Number(row.tat) || 15, // Added tat with default
-                                    isRegional: (row.is_regional || 'false').toLowerCase() === 'true' // Added isRegional
+                                    tat: Number(row.tat) || 15,
+                                    isRegional: (row.is_regional || 'false').toLowerCase() === 'true'
                                 })).filter(movie => movie.title && movie.duration);
                                 await onSave(moviesData);
                             }
@@ -356,15 +364,14 @@
                 </div>
             );
         };
-
         const AddMovieForm = ({ onSave, onCancel }) => {
             const [title, setTitle] = React.useState('');
             const [duration, setDuration] = React.useState('');
             const [censorRating, setCensorRating] = React.useState('');
             const [format, setFormat] = React.useState('');
             const [synopsis, setSynopsis] = React.useState('');
-            const [tat, setTat] = React.useState(15); // New state for TAT, default 15 minutes
-            const [isRegional, setIsRegional] = React.useState(false); // New state for isRegional
+            const [tat, setTat] = React.useState(15);
+            const [isRegional, setIsRegional] = React.useState(false);
             const [isGenerating, setIsGenerating] = React.useState(false);
             const [alertInfo, setAlertInfo] = React.useState({ isOpen: false, message: '' });
 
@@ -393,7 +400,7 @@
                             }
                         }
                     };
-                    const apiKey = "AIzaSyBtQdzj9KWsRDGkjKCvHC39JG0okoqtDKg"; 
+                    const apiKey = ""; 
                     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
                     const response = await fetch(apiUrl, {
@@ -432,7 +439,7 @@
                     setAlertInfo({isOpen: true, message: 'Title and Duration are required.'});
                     return; 
                 }
-                const movieData = { title, duration: Number(duration), censorRating, format, synopsis, tat: Number(tat), isRegional }; // Include TAT and isRegional
+                const movieData = { title, duration: Number(duration), censorRating, format, synopsis, tat: Number(tat), isRegional };
                 await onSave(movieData);
             };
 
@@ -447,7 +454,7 @@
                         </div>
                         <textarea placeholder="Synopsis" value={synopsis} onChange={e => setSynopsis(e.target.value)} rows="3" className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
                         <input type="number" placeholder="Duration (minutes)" value={duration} onChange={e => setDuration(e.target.value)} required className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
-                        <input type="number" placeholder="Turnaround Time (minutes)" value={tat} onChange={e => setTat(e.target.value)} required className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/> {/* New TAT input */}
+                        <input type="number" placeholder="Turnaround Time (minutes)" value={tat} onChange={e => setTat(e.target.value)} required className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
                         <input type="text" placeholder="Censor Rating (e.g., U/A)" value={censorRating} onChange={e => setCensorRating(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
                         <input type="text" placeholder="Format (e.g., 2D, 3D)" value={format} onChange={e => setFormat(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
                         <div className="flex items-center mt-2">
@@ -460,7 +467,6 @@
                 </>
             );
         };
-
         const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, itemType, itemName }) => {
             if (!isOpen) return null;
             return (
@@ -479,7 +485,6 @@
                 </Modal>
             );
         };
-
         const SearchableDropdown = ({ movies, value, onChange, placeholder = "+ Add Show", onOpenChange, isActive }) => {
             const [searchTerm, setSearchTerm] = React.useState('');
             const [isOpen, setIsOpen] = React.useState(false);
@@ -524,17 +529,16 @@
                 document.addEventListener("mousedown", handleClickOutside);
                 return () => document.removeEventListener("mousedown", handleClickOutside);
             }, []);
-
-            // This new effect handles starting a search by typing on an active cell
+            
             React.useEffect(() => {
                 if (isActive && !isOpen) {
                     const handleStartSearch = (e) => {
-                        // FIX: Check if the event is coming from an input field to prevent hijacking typing.
-                        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                        if (e.ctrlKey || e.metaKey || e.altKey) return;
+                        const target = e.target;
+                        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
                             return;
                         }
-                        if (e.ctrlKey || e.altKey || e.metaKey || isOpen) return;
-                        if (e.key.length === 1 && e.key.match(/[a-zA-Z0-9\s]/)) {
+                        if (e.key.length === 1 && e.key.match(/\S/)) {
                             e.preventDefault();
                             e.stopPropagation();
                             setIsOpen(true);
@@ -576,7 +580,7 @@
                 return (
                        <div
                             onClick={() => setIsOpen(true)}
-                            className={`w-full border-none rounded p-1 text-xs cursor-pointer text-center truncate ${selectedMovie ? 'bg-indigo-100 dark:bg-indigo-900/70' : 'bg-gray-50 dark:bg-gray-700/50'}`}
+                            className={`w-full border-none rounded p-1 text-xs cursor-pointer text-center truncate ${selectedMovie ? 'bg-indigo-100 dark:bg-indigo-900/70' : 'bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-600/50'}`}
                         >
                             {selectedMovie ? selectedMovie.title : <span className="text-gray-400">{placeholder}</span>}
                         </div>
@@ -615,7 +619,6 @@
                 </div>
             );
         };
-
         const TimeInput = ({ initialTime, onSave, onCancel }) => {
             const [timeStr, setTimeStr] = React.useState(minutesToTime(initialTime));
             const inputRef = React.useRef(null);
@@ -636,7 +639,7 @@
 
             const handleKeyDown = (e) => {
                 if (e.key === 'Enter') {
-                    e.preventDefault(); // Prevent form submission if any
+                    e.preventDefault();
                     handleBlur();
                 } else if (e.key === 'Escape') {
                     onCancel();
@@ -656,37 +659,29 @@
                 />
             );
         };
-
-        const ExcelScheduler = ({ cinema, shows, movies, onShowMove, onShowMovieChange, onDeleteShow, onShowTimeChange, setDraggedItem, draggedItem, onDeselect, activeCell, setActiveCell, onTimeHover, onDropdownOpenChange, setIsTimeEditing }) => {
+        const ExcelScheduler = ({ cinema, shows, movies, onShowMove, onShowMovieChange, onDeleteShow, onShowTimeChange, setDraggedItem, draggedItem, onDeselect, activeCell, setActiveCell, onTimeHover, onDropdownOpenChange, onTimeEditStart, isTimeEditing }) => {
             const [dragOverCell, setDragOverCell] = React.useState(null);
-            const [editingTimeCell, setEditingTimeCell] = React.useState(null);
-
-            // Memoize the processed schedule data to prevent re-calculations on every render
+            
             const { showsByScreen, maxShows } = React.useMemo(() => {
                 if (!cinema) return { showsByScreen: {}, maxShows: 0 };
-                
                 const grouped = {};
                 cinema.screens.forEach(screen => {
                     grouped[screen.id] = shows
                         .filter(show => show.screenId === screen.id)
                         .sort((a, b) => a.startTime - b.startTime);
                 });
-                
                 const max = Math.max(0, ...Object.values(grouped).map(s => s.length));
-                
-                return { showsByScreen: grouped, maxShows: Math.max(10, max + 1) }; // Ensure at least 10 rows + 1 empty row
+                return { showsByScreen: grouped, maxShows: Math.max(10, max + 1) };
             }, [shows, cinema]);
 
             const handleDragStart = (e, show) => {
                 e.stopPropagation();
                 setDraggedItem({ type: 'existing', data: show });
             };
-
             const handleDragOver = (e, screenId, sessionIndex) => {
                 e.preventDefault();
                 setDragOverCell({ screenId, sessionIndex });
             };
-
             const handleDrop = (e, screenId, sessionIndex) => {
                 e.preventDefault();
                 setDragOverCell(null);
@@ -695,17 +690,6 @@
                 setDraggedItem(null);
             };
             
-            const handleTimeEditStart = (screenId, sessionIndex) => {
-                setEditingTimeCell({ screenId, sessionIndex });
-                setIsTimeEditing(true);
-            };
-
-            const handleTimeEditEnd = () => {
-                setEditingTimeCell(null);
-                setIsTimeEditing(false);
-            };
-
-
             if (!cinema) {
                 return <div className="flex-1 flex items-center justify-center text-gray-500"><p>Select or create a cinema to begin scheduling.</p></div>;
             }
@@ -737,12 +721,13 @@
                                         const show = showsByScreen[screen.id]?.[sessionIndex];
                                         const isDragOver = dragOverCell?.screenId === screen.id && dragOverCell?.sessionIndex === sessionIndex;
                                         const isActive = activeCell?.screenId === screen.id && activeCell?.sessionIndex === sessionIndex;
-                                        const isEditingTime = editingTimeCell?.screenId === screen.id && editingTimeCell?.sessionIndex === sessionIndex;
+                                        const isCurrentlyEditingTime = isTimeEditing && isActive;
 
                                         return (
                                             <React.Fragment key={screen.id}>
                                                 <td
                                                     onClick={(e) => { e.stopPropagation(); setActiveCell({ screenId: screen.id, sessionIndex }); }}
+                                                    onDoubleClick={() => { if(show) onTimeEditStart(screen.id, sessionIndex); }}
                                                     onDragOver={(e) => handleDragOver(e, screen.id, sessionIndex)}
                                                     onDrop={(e) => handleDrop(e, screen.id, sessionIndex)}
                                                     className={`bg-yellow-50 dark:bg-yellow-900/20 ${isDragOver ? 'drag-over' : ''} ${isActive ? 'active-cell' : ''}`}
@@ -784,32 +769,22 @@
                                                     )}
                                                 </td>
                                                 <td
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        if (show) {
-                                                            // FIX: Set the active cell when starting to edit time
-                                                            setActiveCell({ screenId: screen.id, sessionIndex });
-                                                            handleTimeEditStart(screen.id, sessionIndex);
-                                                        }
-                                                    }}
+                                                    onClick={(e) => { e.stopPropagation(); setActiveCell({ screenId: screen.id, sessionIndex }); }}
+                                                    onDoubleClick={() => { if (show) onTimeEditStart(screen.id, sessionIndex); }}
                                                     onDragOver={(e) => handleDragOver(e, screen.id, sessionIndex)}
                                                     onDrop={(e) => handleDrop(e, screen.id, sessionIndex)}
                                                     onMouseEnter={(e) => onTimeHover(e, show)}
                                                     onMouseLeave={() => onTimeHover(null, null)}
                                                     className={`w-24 min-w-[6rem] ${isDragOver ? 'drag-over' : ''} cursor-pointer ${isActive ? 'active-cell' : ''}`}
                                                 >
-                                                     {/* This structure prevents the cell from shrinking. The span holds the space, and the input is absolutely positioned over it. */}
-                                                    <span className={isEditingTime ? 'opacity-0' : ''}>
+                                                    <span className={isCurrentlyEditingTime ? 'opacity-0' : ''}>
                                                       {show ? minutesToTime(show.startTime) : ''}
                                                     </span>
-                                                    {isEditingTime && (
+                                                    {isCurrentlyEditingTime && (
                                                         <TimeInput 
                                                             initialTime={show.startTime}
-                                                            onSave={(newMinutes) => {
-                                                                onShowTimeChange(show.id, newMinutes);
-                                                                handleTimeEditEnd();
-                                                            }}
-                                                            onCancel={handleTimeEditEnd}
+                                                            onSave={(newMinutes) => onShowTimeChange(show.id, newMinutes)}
+                                                            onCancel={() => onTimeEditStart(null, null)} // This will set isTimeEditing to false
                                                         />
                                                     )}
                                                 </td>
@@ -823,7 +798,6 @@
                 </div>
             );
         };
-
         const FilmStock = ({ movies, onAddMovieClick, onUploadMoviesClick, onDeleteMovie, setDraggedItem }) => {
             const handleDragStart = (e, movie) => {
                 setDraggedItem({ type: 'new', data: movie });
@@ -846,7 +820,7 @@
                             >
                                 <p className="font-bold text-[11px] text-gray-900 dark:text-white truncate">{movie.title}</p>
                                 <div className="text-[10px] text-gray-500 dark:text-gray-400 flex justify-between">
-                                    <span>{formatDuration(movie.duration)} + {movie.tat || 0}m TAT</span> {/* Show TAT in palette */}
+                                    <span>{formatDuration(movie.duration)} + {movie.tat || 0}m TAT</span>
                                     <span>{movie.censorRating}</span>
                                     <span>{movie.format}</span>
                                 </div>
@@ -865,10 +839,9 @@
                 </aside>
             );
         };
-
         const Tooltip = ({ show, position }) => {
             if (!show || !position) return null;
-            const effectiveDuration = show.duration + (show.tat || 0); // Calculate effective duration
+            const effectiveDuration = show.duration + (show.tat || 0);
             return (
                 <div 
                     className="fixed z-50 p-2 text-sm bg-gray-800 text-white rounded-md shadow-lg pointer-events-none"
@@ -876,14 +849,13 @@
                 >
                     <p className="font-bold">{show.title}</p>
                     <p>Duration: {formatDuration(show.duration)}</p>
-                    {show.tat > 0 && <p>TAT: {show.tat}m</p>} {/* Show TAT if greater than 0 */}
-                    <p>Total Slot: {formatDuration(effectiveDuration)}</p> {/* Show effective duration */}
-                    <p className="text-xs opacity-80">{minutesToTime(show.startTime)} - {minutesToTime(show.startTime + effectiveDuration)}</p> {/* Use effective duration for end time */}
+                    {show.tat > 0 && <p>TAT: {show.tat}m</p>}
+                    <p>Total Slot: {formatDuration(effectiveDuration)}</p>
+                    <p className="text-xs opacity-80">{minutesToTime(show.startTime)} - {minutesToTime(show.startTime + effectiveDuration)}</p>
                     {show.censorRating && <p>Rating: {show.censorRating}</p>}
                 </div>
             );
         };
-
         const ShowAllocationRibbon = ({ allocations, onEdit }) => {
             return (
                 <div className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
@@ -909,7 +881,6 @@
                 </div>
             );
         };
-
         const AllocationModal = ({ isOpen, onClose, movies, onSave, initialAllocations }) => {
             const [allocations, setAllocations] = React.useState({});
             const [activeTab, setActiveTab] = React.useState('manual');
@@ -941,7 +912,6 @@
                             return;
                         }
                         
-                        // Start with a blank slate to ensure the CSV overwrites existing manual allocations.
                         const newAllocations = {};
                         data.forEach(row => {
                             const movieTitleFromCSV = row.movie_title;
@@ -1018,7 +988,6 @@
                 </Modal>
             );
         };
-
         const BulkAllocationModal = ({ isOpen, onClose, movies, cinemas, onSave }) => {
             const [file, setFile] = React.useState(null);
             const [error, setError] = React.useState('');
@@ -1111,18 +1080,107 @@
                 </Modal>
             );
         };
+        const UploadScheduleModal = ({ isOpen, onClose, onSave, movies, cinema }) => {
+            const [file, setFile] = React.useState(null);
+            const [error, setError] = React.useState('');
+            const [isProcessing, setIsProcessing] = React.useState(false);
 
+            const handleFileChange = (e) => {
+                setError('');
+                setFile(e.target.files[0]);
+            };
+
+            const handleDownloadTemplate = () => {
+                const content = "screen_name,movie_title,start_time\n";
+                downloadCSV(content, 'schedule_template.csv');
+            };
+
+            const handleUpload = () => {
+                if (!file) { setError('Please select a CSV file.'); return; }
+                if (!cinema) { setError('Please select a cinema first.'); return; }
+                if (!window.Papa) { setError('CSV parsing library not ready. Please refresh.'); return; }
+                setIsProcessing(true);
+
+                window.Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    transformHeader: header => header.trim().toLowerCase().replace(/\s+/g, '_'),
+                    complete: (results) => {
+                        const { data, errors } = results;
+                        if (errors.length) {
+                            setError(`Error parsing CSV: ${errors[0].message}`);
+                            setIsProcessing(false);
+                            return;
+                        }
+
+                        const moviesMap = new Map(movies.map(m => [m.title.toLowerCase(), m]));
+                        const screensMap = new Map(cinema.screens.map(s => [s.name.toLowerCase(), s]));
+
+                        const newShows = data.map(row => {
+                            const screenName = row.screen_name?.toLowerCase();
+                            const movieTitle = row.movie_title?.toLowerCase();
+                            const startTimeStr = row.start_time;
+
+                            const screen = screensMap.get(screenName);
+                            const movie = moviesMap.get(movieTitle);
+                            const startTime = timeToMinutes(startTimeStr);
+
+                            if (screen && movie && startTime !== null) {
+                                return {
+                                    id: crypto.randomUUID(),
+                                    cinemaId: cinema.id,
+                                    screenId: screen.id,
+                                    movieId: movie.id,
+                                    title: movie.title,
+                                    duration: movie.duration,
+                                    format: movie.format,
+                                    tat: movie.tat,
+                                    startTime: startTime,
+                                };
+                            }
+                            console.warn("Could not match row:", row);
+                            return null;
+                        }).filter(Boolean);
+
+                        if (newShows.length === 0 && data.length > 0) {
+                             setError("No valid shows could be created from the CSV. Please check screen names, movie titles, and time formats.");
+                        } else {
+                            onSave(newShows);
+                        }
+                        setIsProcessing(false);
+                    },
+                    error: (err) => {
+                        setError(`File reading error: ${err.message}`);
+                        setIsProcessing(false);
+                    }
+                });
+            };
+
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title={`Upload Schedule for ${cinema?.name || ''}`}>
+                    <div className="space-y-4">
+                        <div className="p-4 border-2 border-dashed rounded-lg text-center dark:border-gray-600">
+                            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">CSV format: `screen_name`, `movie_title`, `start_time` (e.g., 10:30 AM)</p>
+                            <input type="file" accept=".csv" onChange={handleFileChange} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                            <button type="button" onClick={handleDownloadTemplate} className="mt-3 inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700"><DownloadIcon className="w-4 h-4 mr-2"/>Download Template</button>
+                        </div>
+                        {error && <p className="text-red-500 text-sm">{error}</p>}
+                        <div className="flex justify-end space-x-3 pt-4">
+                            <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white dark:bg-gray-600 dark:text-gray-200 border border-gray-300 dark:border-gray-500 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+                            <button onClick={handleUpload} disabled={isProcessing || !file} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400">
+                                {isProcessing ? 'Processing...' : 'Upload & Apply'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
         const ScheduleListModal = ({ isOpen, onClose, cinema, movies, shows }) => {
             if (!isOpen || !cinema) return null;
 
-            // Map movies by ID for quick lookup
             const movieMap = new Map(movies.map(m => [m.id, m]));
-
-            // Filter shows to only include those for the current selected cinema
             const currentCinemaShows = shows.filter(show => show.cinemaId === cinema.id);
-
-            // Group shows by movie title
-            const groupedShowsByMovieTitle = {}; // { "Movie Title": [startTime1, startTime2, ...], ... }
+            const groupedShowsByMovieTitle = {}; 
 
             currentCinemaShows.forEach(show => {
                 const movie = movieMap.get(show.movieId);
@@ -1135,15 +1193,12 @@
                 }
             });
 
-            // Sort showtimes within each group and convert to AM/PM format
             for (const key in groupedShowsByMovieTitle) {
-                groupedShowsByMovieTitle[key].sort((a, b) => a - b); // Sort numerically
-                groupedShowsByMovieTitle[key] = groupedShowsByMovieTitle[key].map(minutesToTime); // Format to AM/PM
+                groupedShowsByMovieTitle[key].sort((a, b) => a - b); 
+                groupedShowsByMovieTitle[key] = groupedShowsByMovieTitle[key].map(minutesToTime);
             }
 
             const movieTitles = Object.keys(groupedShowsByMovieTitle);
-
-            // Determine the maximum number of shows for any movie to set row count
             let maxShowtimesPerMovie = 0;
             movieTitles.forEach(title => {
                 if (groupedShowsByMovieTitle[title].length > maxShowtimesPerMovie) {
@@ -1151,12 +1206,11 @@
                 }
             });
 
-            // Generate rows for the table
             const tableRows = [];
             for (let i = 0; i < maxShowtimesPerMovie; i++) {
                 const row = [];
                 movieTitles.forEach(title => {
-                    row.push(groupedShowsByMovieTitle[title][i] || ''); // Add showtime or empty string
+                    row.push(groupedShowsByMovieTitle[title][i] || '');
                 });
                 tableRows.push(row);
             }
@@ -1204,12 +1258,10 @@
                 </Modal>
             );
         };
-
         const OpsDownloadModal = ({ isOpen, onClose, cinemas, onDownload }) => {
             const [selectedIds, setSelectedIds] = React.useState([]);
 
             React.useEffect(() => {
-                // Reset selection when modal opens/closes or cinemas change
                 setSelectedIds([]);
             }, [isOpen, cinemas]);
 
@@ -1274,7 +1326,6 @@
                 </Modal>
             );
         };
-
         const SwapScreensModal = ({ isOpen, onClose, screens, onSwap }) => {
             const [screenA, setScreenA] = React.useState('');
             const [screenB, setScreenB] = React.useState('');
@@ -1318,8 +1369,235 @@
                 </Modal>
             );
         };
+        const EmailDraftModal = ({ isOpen, onClose, allCinemas, allShows, allMovies }) => {
+            const [to, setTo] = React.useState('operations-team@example.com');
+            const [cc, setCc] = React.useState('');
+            const [bcc, setBcc] = React.useState('');
+            const [subject, setSubject] = React.useState('');
+            const [body, setBody] = React.useState('');
+            const [selectedCinemaIds, setSelectedCinemaIds] = React.useState([]);
 
+            const handleSelectAll = (e) => {
+                if (e.target.checked) {
+                    setSelectedCinemaIds(allCinemas.map(c => c.id));
+                } else {
+                    setSelectedCinemaIds([]);
+                }
+            };
 
+            const handleSelectCinema = (cinemaId) => {
+                setSelectedCinemaIds(prev => 
+                    prev.includes(cinemaId) 
+                        ? prev.filter(id => id !== cinemaId)
+                        : [...prev, cinemaId]
+                );
+            };
+
+            React.useEffect(() => {
+                if (!isOpen || selectedCinemaIds.length === 0) {
+                    setBody('');
+                    setSubject('');
+                    return;
+                };
+
+                const today = new Date();
+                const nth = (d) => {
+                    if (d > 3 && d < 21) return 'th';
+                    switch (d % 10) {
+                        case 1: return "st";
+                        case 2: return "nd";
+                        case 3: return "rd";
+                        default: return "th";
+                    }
+                };
+                const day = today.getDate();
+                const dateString = `${day}${nth(day)} ${today.toLocaleString('default', { month: 'long' })} ${today.getFullYear()}`;
+                
+                const selectedCinemas = allCinemas.filter(c => selectedCinemaIds.includes(c.id));
+                const location = selectedCinemas.length > 0 ? selectedCinemas[0].name.split(' ')[0] : 'Cinemas';
+                const newSubject = `SCHEDULE - ${location.toUpperCase()} - ${dateString} Onwards`;
+                setSubject(newSubject);
+                
+                const movieMap = new Map(allMovies.map(m => [m.id, m]));
+
+                let emailHtml = `
+                    <div style="font-family: Arial, sans-serif; font-size: 14px;">
+                    <p><b>SCHEDULE - ${location.toUpperCase()} - ${dateString} Onwards</b></p>
+                    <p><b>TAT – 40 MINS</b></p>
+                    <p style="color: red;"><b>Keep red marked shows on Hold.</b></p>
+                `;
+
+                selectedCinemas.forEach(cinema => {
+                    const showsForCinema = allShows.filter(s => s.cinemaId === cinema.id);
+                    if (showsForCinema.length === 0) return;
+
+                    const showsByScreen = cinema.screens.reduce((acc, screen) => {
+                        acc[screen.id] = showsForCinema
+                            .filter(show => show.screenId === screen.id)
+                            .sort((a, b) => a.startTime - b.startTime);
+                        return acc;
+                    }, {});
+
+                    const maxShows = Math.max(0, ...Object.values(showsByScreen).map(s => s.length));
+                    if (maxShows === 0) return;
+                    
+                    emailHtml += `<h3 style="font-family: Arial, sans-serif; font-weight: bold; text-transform: uppercase; margin-top: 10px; margin-bottom: 5px;">${cinema.name}</h3>`;
+                    emailHtml += `
+                        <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10px; border: 1px solid black;">
+                            <thead>
+                                <tr style="background-color: #D9D9D9; font-weight: bold;">
+                                    <th style="padding: 3px; border: 1px solid black;">Session</th>
+                    `;
+                    cinema.screens.forEach(screen => {
+                        emailHtml += `<th style="padding: 3px; border: 1px solid black;" colspan="2">${screen.name}</th>`;
+                    });
+                    emailHtml += `</tr><tr style="background-color: #D9D9D9; font-weight: bold;">
+                        <td style="padding: 3px; border: 1px solid black;"></td>
+                        ${cinema.screens.map(() => `<td style="padding: 3px; border: 1px solid black;">Start</td><td style="padding: 3px; border: 1px solid black;">Time</td>`).join('')}
+                    </tr></thead><tbody>`;
+
+                    for (let i = 0; i < maxShows; i++) {
+                        const sessionNumber = i + 1;
+                        let sessionSuffix;
+                        if (sessionNumber === 1) sessionSuffix = 'st';
+                        else if (sessionNumber === 2) sessionSuffix = 'nd';
+                        else if (sessionNumber === 3) sessionSuffix = 'rd';
+                        else sessionSuffix = 'th';
+
+                        emailHtml += `<tr style="background-color: #FDE698;">`;
+                        emailHtml += `<td style="padding: 3px; border: 1px solid black; font-weight: bold;">${sessionNumber}${sessionSuffix}</td>`;
+                        
+                        cinema.screens.forEach(screen => {
+                            const show = showsByScreen[screen.id]?.[i];
+                            if (show) {
+                                const movie = movieMap.get(show.movieId);
+                                const movieText = movie ? `${movie.title.toUpperCase()} (${movie.censorRating || 'U/A'}) (${movie.format || '2D'})` : 'N/A';
+                                const timeText = minutesToTime(show.startTime);
+                                emailHtml += `<td style="padding: 3px; border: 1px solid black;">${movieText}</td><td style="padding: 3px; border: 1px solid black;">${timeText}</td>`;
+                            } else {
+                                emailHtml += `<td style="padding: 3px; border: 1px solid black;"></td><td style="padding: 3px; border: 1px solid black;"></td>`;
+                            }
+                        });
+                        emailHtml += `</tr>`;
+                    }
+                     emailHtml += `
+                        <tr style="background-color: #FDE698;">
+                            <td style="padding: 3px; border: 1px solid black;"></td>
+                            ${cinema.screens.map(() => `<td style="padding: 3px; border: 1px solid black; font-weight: bold;">END</td><td style="padding: 3px; border: 1px solid black;"></td>`).join('')}
+                        </tr>
+                     `;
+
+                    emailHtml += `</tbody></table>`;
+                });
+
+                emailHtml += `</div>`;
+
+                setBody(emailHtml);
+
+            }, [isOpen, selectedCinemaIds, allCinemas, allShows, allMovies]);
+
+            const handleOpenOutlook = () => {
+                if (!to) return;
+                
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = body;
+                document.body.appendChild(tempDiv);
+                
+                const range = document.createRange();
+                range.selectNode(tempDiv);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+                
+                try {
+                    document.execCommand('copy');
+                    alert('Schedule HTML copied to clipboard. You can now paste it into your email body.');
+                } catch (err) {
+                    alert('Could not copy to clipboard. Please manually copy from the text area.');
+                }
+                
+                window.getSelection().removeAllRanges();
+                document.body.removeChild(tempDiv);
+
+                const mailtoLink = `mailto:${encodeURIComponent(to)}?` +
+                                   `cc=${encodeURIComponent(cc)}&` +
+                                   `bcc=${encodeURIComponent(bcc)}&` +
+                                   `subject=${encodeURIComponent(subject)}&` +
+                                   `body=${encodeURIComponent("Please paste the schedule from your clipboard here. (Ctrl+V or Cmd+V)")}`;
+                
+                window.open(mailtoLink, '_blank');
+                onClose();
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title="Draft Schedule Email">
+                    <div className="flex space-x-4 max-h-[70vh]">
+                        <div className="w-1/3 border-r pr-4 dark:border-gray-600 flex flex-col">
+                             <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Select Cinemas</h4>
+                             <div className="flex items-center p-2 border-b dark:border-gray-700 flex-shrink-0">
+                                <input 
+                                    type="checkbox" 
+                                    id="select-all-email" 
+                                    onChange={handleSelectAll}
+                                    checked={allCinemas.length > 0 && selectedCinemaIds.length === allCinemas.length}
+                                    className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                                />
+                                <label htmlFor="select-all-email" className="ml-3 block text-sm font-medium text-gray-700 dark:text-gray-200">
+                                    Select All
+                                </label>
+                            </div>
+                            <div className="overflow-y-auto space-y-2 p-2 flex-grow">
+                                {allCinemas.map(cinema => (
+                                    <div key={cinema.id} className="flex items-center">
+                                        <input 
+                                            type="checkbox" 
+                                            id={`email-cinema-${cinema.id}`}
+                                            checked={selectedCinemaIds.includes(cinema.id)}
+                                            onChange={() => handleSelectCinema(cinema.id)}
+                                            className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                                        />
+                                        <label htmlFor={`email-cinema-${cinema.id}`} className="ml-3 block text-sm text-gray-700 dark:text-gray-300">
+                                            {cinema.name}
+                                        </label>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="w-2/3 space-y-3 overflow-y-auto pr-2">
+                             <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">To</label>
+                                <input type="email" value={to} onChange={e => setTo(e.target.value)} required className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">CC</label>
+                                <input type="text" value={cc} onChange={e => setCc(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">BCC</label>
+                                <input type="text" value={bcc} onChange={e => setBcc(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Subject</label>
+                                <input type="text" value={subject} onChange={e => setSubject(e.target.value)} required className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Body Preview (HTML)</label>
+                                <div dangerouslySetInnerHTML={{ __html: body }} className="mt-1 w-full p-3 h-48 overflow-y-scroll bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md" />
+                            </div>
+                             <p className="text-xs text-gray-500 dark:text-gray-400">Note: Opening Outlook depends on your system's default email client settings.</p>
+                            <div className="flex justify-end space-x-3 pt-4 border-t dark:border-gray-700">
+                                <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white dark:bg-gray-600 dark:text-gray-200 border border-gray-300 dark:border-gray-500 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+                                <button type="button" onClick={handleOpenOutlook} disabled={selectedCinemaIds.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 flex items-center disabled:opacity-50">
+                                   <MailIcon size={16} className="mr-2" /> Open in Outlook & Copy Body
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+        
         // --- Custom Hook for History and Persistence ---
         const useHistoryWithPersistence = (key, initialState) => {
             const [state, setState] = React.useState(() => {
@@ -1369,19 +1647,13 @@
 
 
         const MainApp = () => {
-            const initialState = {
-                cinemas: [],
-                movies: [],
-                shows: [],
-                plannedAllocations: {},
-            };
-
+            const initialState = { cinemas: [], movies: [], shows: [], plannedAllocations: {}, };
             const [state, setState, undo, redo, canUndo, canRedo] = useHistoryWithPersistence('showtime_manager_state', initialState);
             const { cinemas, movies, shows, plannedAllocations } = state;
             
             const [selectedCinema, setSelectedCinema] = React.useState(null);
+            const [scheduleStartTime, setScheduleStartTime] = React.useState(null); // Session start time override
             const [draggedItem, setDraggedItem] = React.useState(null);
-            const [loading, setLoading] = React.useState(false); 
             const [isAddCinemaModalOpen, setAddCinemaModalOpen] = React.useState(false);
             const [isEditModalOpen, setEditModalOpen] = React.useState(false);
             const [cinemaToEdit, setCinemaToEdit] = React.useState(null);
@@ -1390,6 +1662,7 @@
             const [isUploadCinemaModalOpen, setUploadCinemaModalOpen] = React.useState(false);
             const [isAddMovieModalOpen, setAddMovieModalOpen] = React.useState(false);
             const [isUploadMoviesModalOpen, setUploadMoviesModalOpen] = React.useState(false);
+            const [isUploadScheduleModalOpen, setUploadScheduleModalOpen] = React.useState(false);
             const [alertInfo, setAlertInfo] = React.useState({ isOpen: false, title: '', message: '' });
             const [showAllocations, setShowAllocations] = React.useState([]);
             const [isAllocationModalOpen, setAllocationModalOpen] = React.useState(false);
@@ -1402,84 +1675,100 @@
             const [exampleImages, setExampleImages] = React.useState([]);
             const [isAlgoScheduling, setIsAlgoScheduling] = React.useState(false);
             const [activeCell, setActiveCell] = React.useState({ screenId: null, sessionIndex: null });
-            const [clipboard, setClipboard] = React.useState(null); // For copy-paste
+            const [clipboard, setClipboard] = React.useState(null);
             const [tooltip, setTooltip] = React.useState({ show: null, position: null });
             const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
-            const [isTimeEditing, setIsTimeEditing] = React.useState(false); // New state to track time editing
+            const [isTimeEditing, setIsTimeEditing] = React.useState(false);
             const [isClearDataModalOpen, setIsClearDataModalOpen] = React.useState(false);
             const [isClearScheduleModalOpen, setIsClearScheduleModalOpen] = React.useState(false);
             const [isSwapModalOpen, setIsSwapModalOpen] = React.useState(false);
+            const [isEmailDraftModalOpen, setEmailDraftModalOpen] = React.useState(false);
+            const [theme, setTheme] = React.useState(() => {
+                const savedTheme = localStorage.getItem('theme');
+                if (savedTheme) return savedTheme;
+                if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+                return 'light';
+            });
 
-            // Update selectedCinema when cinemas array changes (e.g., after deletion or on initial load)
             React.useEffect(() => {
-                if (selectedCinema && !cinemas.some(c => c.id === selectedCinema.id)) {
-                    setSelectedCinema(cinemas[0] || null);
-                } else if (!selectedCinema && cinemas.length > 0) {
-                    setSelectedCinema(cinemas[0]);
+                if (theme === 'dark') {
+                    document.documentElement.classList.add('dark');
+                } else {
+                    document.documentElement.classList.remove('dark');
                 }
-            }, [cinemas, selectedCinema]);
+                localStorage.setItem('theme', theme);
+            }, [theme]);
 
-            // Update show allocations whenever shows, movies, or plannedAllocations change
+            // Effect to handle cinema list changes and initial selection
+            React.useEffect(() => {
+                const currentCinemaStillExists = selectedCinema && cinemas.some(c => c.id === selectedCinema.id);
+                
+                if (currentCinemaStillExists) {
+                    // If the cinema was edited, update its data in state
+                    const updatedCinemaData = cinemas.find(c => c.id === selectedCinema.id);
+                    if (JSON.stringify(updatedCinemaData) !== JSON.stringify(selectedCinema)) {
+                        setSelectedCinema(updatedCinemaData);
+                    }
+                } else if (cinemas.length > 0) {
+                    // If no cinema is selected, or selected one was deleted, select the first one
+                    setSelectedCinema(cinemas[0]);
+                } else {
+                    // No cinemas left
+                    setSelectedCinema(null);
+                }
+            }, [cinemas]);
+
+            // Effect to update start time when the selected cinema changes
+            React.useEffect(() => {
+                if (selectedCinema) {
+                    // Use the cinema's default start time when it's selected
+                    setScheduleStartTime(selectedCinema.dailyStartTime);
+                } else {
+                    setScheduleStartTime(null);
+                }
+            }, [selectedCinema]);
+
             React.useEffect(() => {
                 if (!selectedCinema) {
                     setShowAllocations([]);
                     return;
                 };
-
                 const actualCounts = movies.reduce((acc, movie) => {
                     acc[movie.id] = shows.filter(show => show.movieId === movie.id && show.cinemaId === selectedCinema.id).length;
                     return acc;
                 }, {});
-
                 const cinemaAllocs = plannedAllocations[selectedCinema.id] || {};
-
                 const combined = movies.map(movie => ({
                     ...movie,
                     actual: actualCounts[movie.id] || 0,
                     planned: cinemaAllocs[movie.id] || 0,
                 })).filter(alloc => alloc.planned > 0 || alloc.actual > 0);
-
                 combined.sort((a, b) => (b.planned + b.actual) - (a.planned + a.actual));
-
                 setShowAllocations(combined);
-
             }, [shows, movies, plannedAllocations, selectedCinema]);
 
-            // This is the new, stable function for recalculating times on a single screen.
             const repackScreenFromIndex = (showsToProcess, screenId, startIndex = 0) => {
                 if (!selectedCinema) {
                     return showsToProcess
                 }
-
-                // Get all shows NOT on the affected screen. These will be preserved as-is.
                 const otherShows = showsToProcess.filter(s => s.screenId !== screenId);
-
-                // Get all shows for the affected screen. IMPORTANT: We trust the order they are in.
                 const showsOnScreen = showsToProcess.filter(s => s.screenId === screenId);
-
-                // Determine the start time for the repack.
                 let currentTime;
                 if (startIndex === 0) {
-                    currentTime = selectedCinema.dailyStartTime;
+                    currentTime = scheduleStartTime;
                 } else if (showsOnScreen[startIndex - 1]) {
                     const prevShow = showsOnScreen[startIndex - 1];
                     currentTime = prevShow.startTime + prevShow.duration + (prevShow.tat || 0);
                 } else {
-                    currentTime = selectedCinema.dailyStartTime;
+                    currentTime = scheduleStartTime;
                 }
-
-                // Repack the shows from the start index onwards.
                 for (let i = startIndex; i < showsOnScreen.length; i++) {
                     const show = showsOnScreen[i];
                     show.startTime = currentTime;
                     currentTime += show.duration + (show.tat || 0);
                 }
-
                 return [...otherShows, ...showsOnScreen];
             };
-
-
-            // CRUD operations for Cinemas
             const handleAddCinema = async (cinemaData) => { 
                 setState({ ...state, cinemas: [...state.cinemas, { id: crypto.randomUUID(), ...cinemaData }] });
                 setAddCinemaModalOpen(false); 
@@ -1492,7 +1781,6 @@
                 if (!itemToDelete) return;
                 const newAllocs = { ...state.plannedAllocations };
                 delete newAllocs[itemToDelete.id];
-
                 setState({
                     ...state,
                     cinemas: state.cinemas.filter(c => c.id !== itemToDelete.id),
@@ -1502,8 +1790,6 @@
                 setDeleteModalOpen(false);
                 setItemToDelete(null);
             };
-
-            // CRUD operations for Movies
             const handleAddMovie = async (movieData) => { 
                 setState({ ...state, movies: [...state.movies, { id: crypto.randomUUID(), ...movieData }] });
                 setAddMovieModalOpen(false); 
@@ -1511,19 +1797,16 @@
             const handleDeleteMovie = async (movieId) => { 
                 const showToDelete = state.shows.find(s => s.movieId === movieId);
                 const remainingShows = state.shows.filter(s => s.movieId !== movieId);
-                
                 let newShows = remainingShows;
                 if (showToDelete) {
                     newShows = repackScreenFromIndex(remainingShows, showToDelete.screenId);
                 }
-                
                 const newAllocs = {};
                 for (const cinemaId in state.plannedAllocations) {
                     const cinemaAllocs = { ...state.plannedAllocations[cinemaId] };
                     delete cinemaAllocs[movieId];
                     newAllocs[cinemaId] = cinemaAllocs;
                 }
-
                 setState({
                     ...state,
                     movies: state.movies.filter(m => m.id !== movieId),
@@ -1531,12 +1814,9 @@
                     plannedAllocations: newAllocs
                 });
             };
-
-            // CRUD operations for Shows
             const handleShowMove = (draggedItem, screenId, sessionIndex) => {
                 let showToMove;
                 let intermediateShows;
-                
                 if (draggedItem.type === 'existing') {
                     showToMove = { ...draggedItem.data };
                     intermediateShows = state.shows.filter(s => s.id !== draggedItem.data.id);
@@ -1555,18 +1835,14 @@
                     intermediateShows = [...state.shows];
                 }
                 showToMove.screenId = screenId;
-
                 let showsOnScreen = intermediateShows
                     .filter(s => s.screenId === screenId)
                     .sort((a, b) => a.startTime - b.startTime);
-
                 showsOnScreen.splice(sessionIndex, 0, showToMove);
-
                 const otherShows = intermediateShows.filter(s => s.screenId !== screenId);
                 const newShows = repackScreenFromIndex([...otherShows, ...showsOnScreen], screenId, sessionIndex);
                 setState({ ...state, shows: newShows });
             };
-
             const handleShowMovieChange = (showToUpdate, newMovie) => {
                 const updatedShows = state.shows.map(s => 
                     s.id === showToUpdate.id 
@@ -1579,66 +1855,50 @@
                       } 
                     : s
                 );
-                
                 const showIndex = updatedShows
                     .filter(s => s.screenId === showToUpdate.screenId)
                     .sort((a, b) => a.startTime - b.startTime)
                     .findIndex(s => s.id === showToUpdate.id);
-
                 const newShows = repackScreenFromIndex(updatedShows, showToUpdate.screenId, showIndex);
                 setState({ ...state, shows: newShows });
             };
-
             const handleShowTimeChange = (showId, newStartTime) => {
+                setIsTimeEditing(false);
                 const showToUpdate = state.shows.find(s => s.id === showId);
                 if (!showToUpdate) return;
-
                 const updatedShows = state.shows.map(s => s.id === showId ? {...s, startTime: newStartTime} : s);
-
                 const showIndex = updatedShows
                     .filter(s => s.screenId === showToUpdate.screenId)
                     .sort((a, b) => a.startTime - b.startTime)
                     .findIndex(s => s.id === showId);
-
                 const newShows = repackScreenFromIndex(updatedShows, showToUpdate.screenId, showIndex + 1);
                 setState({ ...state, shows: newShows });
             };
-
             const handleDeleteShow = (showId) => {
                 const showToDelete = state.shows.find(s => s.id === showId);
                 if (!showToDelete) return;
-
                 const remainingShows = state.shows.filter(s => s.id !== showId);
-                
                 const showIndex = state.shows
                     .filter(s => s.screenId === showToDelete.screenId)
                     .sort((a, b) => a.startTime - b.startTime)
                     .findIndex(s => s.id === showId);
-                
                 const newShows = repackScreenFromIndex(remainingShows, showToDelete.screenId, showIndex);
                 setState({ ...state, shows: newShows });
             };
-
             const handleSwapScreens = (screenAId, screenBId) => {
                 const showsForCinema = shows.filter(s => s.cinemaId === selectedCinema.id);
                 const otherCinemaShows = shows.filter(s => s.cinemaId !== selectedCinema.id);
-                
                 const showsForA = showsForCinema.filter(s => s.screenId === screenAId);
                 const showsForB = showsForCinema.filter(s => s.screenId === screenBId);
                 const otherShowsOnThisCinema = showsForCinema.filter(s => s.screenId !== screenAId && s.screenId !== screenBId);
-
                 const swappedShowsA = showsForA.map(s => ({ ...s, screenId: screenBId }));
                 const swappedShowsB = showsForB.map(s => ({ ...s, screenId: screenAId }));
-                
                 setState({ ...state, shows: [...otherCinemaShows, ...otherShowsOnThisCinema, ...swappedShowsA, ...swappedShowsB] });
             };
-            
-            // Allocation management
             const handleSaveAllocations = async (newAllocations) => {
                 if (!selectedCinema) return;
                 setState({ ...state, plannedAllocations: { ...state.plannedAllocations, [selectedCinema.id]: newAllocations } });
             };
-
             const handleBulkSaveAllocations = async (updates) => {
                 const newPlannedAllocations = { ...state.plannedAllocations };
                 for (const cinemaId in updates) {
@@ -1646,8 +1906,6 @@
                 }
                 setState({ ...state, plannedAllocations: newPlannedAllocations });
             };
-
-            // CSV Uploads (Cinemas and Movies)
             const handleAddCinemasCSV = async (data) => { 
                 setState({ ...state, cinemas: [...state.cinemas, ...data] });
                 setUploadCinemaModalOpen(false); 
@@ -1656,7 +1914,12 @@
                 setState({ ...state, movies: [...state.movies, ...data] });
                 setUploadMoviesModalOpen(false); 
             };
-
+            const handleUploadSchedule = (newShows) => {
+                if (!selectedCinema) return;
+                const otherCinemaShows = state.shows.filter(s => s.cinemaId !== selectedCinema.id);
+                setState({ ...state, shows: [...otherCinemaShows, ...newShows] });
+                setUploadScheduleModalOpen(false);
+            };
             const handleImageUpload = (e) => {
                 const files = Array.from(e.target.files);
                 const imagePromises = files.map(file => {
@@ -1673,7 +1936,6 @@
                         reader.readAsDataURL(file);
                     });
                 });
-
                 Promise.all(imagePromises).then(images => {
                     setExampleImages(prev => [...prev, ...images]);
                 });
@@ -1691,51 +1953,38 @@
                 const moviesMap = new Map(movies.map(m => [m.id, m]));
                 const screensMap = new Map(cinema.screens.map(s => [s.id, s]));
 
-                let promptParts = [];
+                const textPrompt = `You are an expert cinema scheduler. Your goal is to create an optimal, compact schedule.
 
-                const textPrompt = `You are a cinema scheduling expert. Your task is to create an optimal, perfectly packed movie schedule based on a strict set of rules.
+**Input Data:**
+- **Cinema:** ${cinema.name}
+- **Daily Start Time:** ${minutesToTime(scheduleStartTime)}
+- **Screens:**
+${cinema.screens.map(s => `  - ${s.name} (ID: ${s.id}, Capacity: ${s.capacity})`).join('\n')}
+- **Movies & Allocations (Required Shows):**
+${Object.entries(allocations).map(([movieId, count]) => {
+    const movie = moviesMap.get(movieId);
+    return `- "${movie.title}" (ID: ${movieId}, Duration: ${movie.duration}m, TAT: ${movie.tat || 15}m, Regional: ${movie.isRegional}): ${count} shows`;
+}).join('\n')}
 
-**Cinema Details:**
-- Name: ${cinema.name}
-- Daily Start Time: ${minutesToTime(cinema.dailyStartTime)} (${cinema.dailyStartTime} minutes from midnight)
-- Screens:
-${cinema.screens.map(s => `  - Screen Name: "${s.name}" (ID: ${s.id}), Capacity: ${s.capacity}, Format: ${s.format}`).join('\n')}
+**Scheduling Constraints (Must be followed):**
+1.  **Exact Allocations:** Schedule the exact number of shows for each movie as specified above.
+2.  **No Overlaps:** A show's start time must be >= the previous show's end time (start + duration + TAT) on the same screen.
+3.  **Time Bounds:** No show can start after 11:30 PM (1410 mins).
+4.  **Regional Window:** If a movie is 'Regional: true', it must start between 12:00 PM (720 mins) and 8:30 PM (1290 mins).
+5.  **Rounding:** All start times must be a multiple of 5 minutes.
 
-**Movies to Schedule:**
-${movies.filter(m => allocations[m.id]).map(m => `- Movie: "${m.title}" (ID: ${m.id}), Duration: ${m.duration} mins, TAT: ${m.tat || 15} mins, Format: ${m.format}, isRegional: ${m.isRegional}`).join('\n')}
+**Optimization Goals (Try your best to achieve):**
+- **Compactness:** Minimize empty gaps between shows on each screen. Schedules should be back-to-back.
+- **Screen Filling:** After meeting allocations, intelligently add more shows to fill available time on screens, prioritizing movies that are already on that screen.
+- **Auditorium Logic:** Assign movies with more shows to larger capacity screens. Try to keep all shows of a major movie (5+ shows) on the same screen.
+- **Stagger Starts:** Avoid starting more than two shows at the exact same time across the cinema.
 
-**Show Allocations (Required number of shows for each movie):**
-${Object.entries(allocations).map(([movieId, count]) => `- "${moviesMap.get(movieId)?.title}": ${count} shows`).join('\n')}
-
-**Scheduling Rules (MANDATORY AND NON-NEGOTIABLE):**
-1.  **Strict Allocation Adherence (Highest Priority):** You MUST schedule the exact number of shows specified for each movie in the allocations list. Do not add more or fewer shows than specified for these movies.
-2.  **CRITICAL RULE: No Overlaps.** A show's start time must be after the previous show's end time (duration + TAT) on the same screen.
-3.  **ABSOLUTE CRITICAL RULE: ZERO GAPS & BACK-TO-BACK.** This is the most important rule. The schedule must be perfectly compact. The start time of any show on a screen must be *exactly* equal to the end time (duration + TAT) of the show that came before it on that *same screen*. Do not leave any empty time between shows on a single screen.
-4.  **Minimum Gap Between Same Movie:** A minimum gap of 30 minutes must exist between the start time of a show for a specific movie and the start time of the next show *of that same movie* across the entire cinema.
-5.  **Last Show Time:** No show may START after 11:30 PM (1410 minutes from midnight).
-6.  **Regional Content Window:** Movies marked as 'isRegional: true' should be scheduled to start between 12:00 PM (720 minutes) and 8:30 PM (1290 minutes).
-7.  **Staggered Start:** Stagger the first showtimes of the day. Do not start more than two shows at the exact same time, especially at the beginning of the day.
-8.  **Auditorium Assignment:** Prioritize placing movies with higher allocation counts into auditoriums with higher seating capacity. The biggest movies should go in the biggest screens.
-9.  **Movie of the Week Rule (Very High Priority):** If a movie has 5 or more shows allocated, it is a "major movie". Try to place all shows for a major movie in the same, single auditorium. Avoid sharing this auditorium with "minor movies" (those with less than 5 shows), UNLESS the auditorium has the capacity to fit 6 or more total shows in a day.
-10. **ABSOLUTE RULE - MAXIMIZE SCREEN TIME:** After fulfilling all allocations from rule #1, your task is not finished. You MUST iterate through every screen. Calculate the end time of the last show on that screen. If you can fit ANY other movie from the list into the remaining time before the 11:30 PM (1410 minutes) cutoff, you MUST add that show. Prioritize adding shows of movies that are already playing on that screen to fill these gaps. Repeat this process until no more shows can possibly be added to any screen.
-11. **Rounding:** All startTime values MUST be a multiple of 5.
-
-Generate the final schedule as a valid JSON array of show objects. Each object must contain: "movieId", "screenId", and "startTime" (in minutes from midnight).
+**Output:**
+Return a valid JSON array of show objects. Each object must have "movieId", "screenId", and "startTime" (in minutes from midnight).
 `;
-                promptParts.push({text: textPrompt});
-
-                exampleImages.forEach(img => {
-                    promptParts.push({
-                        inlineData: {
-                            mimeType: img.mimeType,
-                            data: img.data.split(',')[1] // remove the data URL prefix
-                        }
-                    });
-                });
-
 
                 const payload = {
-                    contents: [{ role: "user", parts: promptParts }],
+                    contents: [{ role: "user", parts: [{text: textPrompt}] }],
                     generationConfig: {
                         responseMimeType: "application/json",
                         responseSchema: {
@@ -1754,7 +2003,7 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                 };
                 
                 try {
-                    const apiKey = "AIzaSyBtQdzj9KWsRDGkjKCvHC39JG0okoqtDKg";
+                    const apiKey = "";
                     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
                     const response = await fetch(apiUrl, {
@@ -1764,7 +2013,8 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                     });
 
                     if (!response.ok) {
-                        throw new Error(`API request failed with status ${response.status}`);
+                        const errorBody = await response.text();
+                        throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
                     }
 
                     const result = await response.json();
@@ -1796,7 +2046,7 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                         setAlertInfo({ isOpen: true, title: "Scheduling Complete", message: `Gemini has generated a schedule with ${newShows.length} shows.` });
 
                     } else {
-                         throw new Error("Invalid response structure from Gemini API.");
+                         throw new Error("Invalid response structure from Gemini API. The response might be empty or blocked.");
                     }
                 } catch (error) {
                     console.error("Error during Gemini auto-scheduling:", error);
@@ -1813,10 +2063,33 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                 }
                 setIsAlgoScheduling(true);
 
+                const LATE_SHOW_START_CUTOFF = 1410; // 11:30 PM
                 const cinema = selectedCinema;
                 const allocations = { ...plannedAllocations[cinema.id] }; 
                 const moviesMap = new Map(movies.map(m => [m.id, m]));
                 let totalShowsToPlace = Object.values(allocations).reduce((sum, count) => sum + count, 0);
+
+                // --- NEW: Time Slot Definitions ---
+                const timeSlots = {
+                    morning: { start: 540, end: 720 },   // 9am - 12pm
+                    afternoon: { start: 720, end: 1020 }, // 12pm - 5pm
+                    evening: { start: 1020, end: 1260 }, // 5pm - 9pm
+                    night: { start: 1260, end: 1410 }    // 9pm - 11:30pm
+                };
+                const getTimeSlot = (time) => {
+                    for (const slot in timeSlots) {
+                        if (time >= timeSlots[slot].start && time < timeSlots[slot].end) {
+                            return slot;
+                        }
+                    }
+                    return null;
+                };
+                
+                // --- NEW: Tracker for shows per movie per time slot ---
+                const showsByMovieInTimeSlot = {};
+                movies.forEach(m => {
+                    showsByMovieInTimeSlot[m.id] = { morning: 0, afternoon: 0, evening: 0, night: 0 };
+                });
 
                 if (totalShowsToPlace === 0) {
                     setAlertInfo({ isOpen: true, title: "Nothing to Schedule", message: "No show allocations have been set for this cinema." });
@@ -1827,7 +2100,7 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                 let newShows = [];
                 let screenTimelines = {};
                 cinema.screens.forEach(s => {
-                    screenTimelines[s.id] = cinema.dailyStartTime;
+                    screenTimelines[s.id] = scheduleStartTime;
                 });
                 
                 const majorMovieIds = new Set();
@@ -1837,21 +2110,13 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                     }
                 }
 
-                const screenCapacities = {};
-                const avgMovieDuration = movies.length > 0 
-                    ? movies.reduce((sum, m) => sum + m.duration + (m.tat || 15), 0) / movies.length 
-                    : 150; 
-
-                cinema.screens.forEach(screen => {
-                    screenCapacities[screen.id] = Math.floor((1410 - cinema.dailyStartTime) / avgMovieDuration);
-                });
-
                 const sortedScreens = [...cinema.screens].sort((a, b) => b.capacity - a.capacity);
 
                 let placedShowsCount = 0;
                 let iterationGuard = 0; 
-                const maxIterations = totalShowsToPlace * 2; 
+                const maxIterations = totalShowsToPlace * 3; // Increased for more complex logic
 
+                // --- PHASE 1: Place allocated shows ---
                 while (placedShowsCount < totalShowsToPlace && iterationGuard < maxIterations) {
                     iterationGuard++;
                     let bestFit = {
@@ -1870,15 +2135,16 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
 
                             let checkTime = screenTimelines[screen.id];
                             let validTimeFound = false;
-
+                            
+                            // Try to find a valid time slot on this screen
                             while (!validTimeFound) {
                                 checkTime = Math.ceil(checkTime / 5) * 5;
 
-                                if (checkTime + movie.duration > 1410) break; 
+                                if (checkTime > LATE_SHOW_START_CUTOFF) break; 
 
                                 const showsAtSameTime = newShows.filter(s => s.startTime === checkTime).length;
                                 if (showsAtSameTime >= 2) {
-                                    checkTime += 5;
+                                    checkTime += 15; // Stagger more
                                     continue;
                                 }
 
@@ -1899,8 +2165,21 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                                 
                                 validTimeFound = true;
                                 
-                                let score = (2000 - checkTime) * 1000 + allocations[movieId];
+                                // --- MODIFIED: Scoring Logic ---
+                                let score = 1000000; // Base score
+                                
+                                // 1. Time Slot Diversity (Highest Priority)
+                                const slot = getTimeSlot(checkTime);
+                                if (slot) {
+                                    const showsInSlot = showsByMovieInTimeSlot[movie.id][slot];
+                                    if (showsInSlot === 0) {
+                                        score += 500000; // Huge bonus for filling an empty slot
+                                    }
+                                    // Penalize heavily for adding to an already populated slot
+                                    score -= showsInSlot * 200000;
+                                }
 
+                                // 2. Major Movie Logic
                                 const isMajorMovie = majorMovieIds.has(movieId);
                                 const screenShows = newShows.filter(s => s.screenId === screen.id);
                                 const moviesOnScreen = new Set(screenShows.map(s => s.movieId));
@@ -1914,12 +2193,13 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                                     }
                                 } else { 
                                     if (majorMoviesOnScreen.size > 0) {
-                                        if (screenCapacities[screen.id] < 6) {
-                                            score -= 75000; 
-                                        }
+                                        score -= 75000; 
                                     }
                                 }
                                 
+                                // 3. Compactness (Lower Priority)
+                                score -= (checkTime - screenTimelines[screen.id]) * 10;
+
                                 if (score > bestFit.score) {
                                     bestFit = {
                                         movieId: movie.id,
@@ -1928,6 +2208,8 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                                         score: score,
                                     };
                                 }
+                                // Move to next potential time slot for evaluation
+                                checkTime += 5;
                             }
                         }
                     }
@@ -1946,7 +2228,23 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                             startTime: bestFit.startTime
                         });
                         
-                        screenTimelines[bestFit.screenId] = bestFit.startTime + movie.duration + (movie.tat || 15);
+                        // --- MODIFIED: Update trackers ---
+                        const placedSlot = getTimeSlot(bestFit.startTime);
+                        if (placedSlot) {
+                            showsByMovieInTimeSlot[bestFit.movieId][placedSlot]++;
+                        }
+
+                        // Re-sort and update timeline
+                        newShows.sort((a,b) => a.startTime - b.startTime);
+                        cinema.screens.forEach(s => {
+                            const lastShowOnScreen = newShows.filter(sh => sh.screenId === s.id).pop();
+                            if (lastShowOnScreen) {
+                                screenTimelines[s.id] = lastShowOnScreen.startTime + lastShowOnScreen.duration + (lastShowOnScreen.tat || 15);
+                            } else {
+                                screenTimelines[s.id] = scheduleStartTime;
+                            }
+                        });
+
                         allocations[bestFit.movieId]--;
                         placedShowsCount++;
                     } else {
@@ -1956,9 +2254,65 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                     }
                 }
                 
+                // --- PHASE 2: Fill remaining time slots (can be simplified or removed if not needed) ---
+                // This phase can conflict with the goal of spreading shows, so we'll keep it simple.
+                 let fillerIterationGuard = 0;
+                const maxFillerIterations = cinema.screens.length * 5;
+
+                while (fillerIterationGuard < maxFillerIterations) {
+                    fillerIterationGuard++;
+                    let showAddedInThisPass = false;
+
+                    for (const screen of sortedScreens) {
+                        const currentTime = screenTimelines[screen.id];
+                        let bestFillerMovie = null;
+                        let bestFillerScore = -Infinity;
+
+                        for (const movie of movies) {
+                             const checkTime = Math.ceil(currentTime / 5) * 5;
+                             if (checkTime + movie.duration > LATE_SHOW_START_CUTOFF) continue;
+                             if (movie.isRegional && (checkTime < 720 || checkTime > 1290)) continue;
+
+                            let score = 100;
+                             const moviesOnScreen = new Set(newShows.filter(s => s.screenId === screen.id).map(s => s.movieId));
+                             if (moviesOnScreen.has(movie.id)) {
+                                score += 200; // Prefer movies already on the screen
+                            }
+                            score -= movie.duration; // Prefer shorter movies to fill small gaps
+
+                            if(score > bestFillerScore){
+                                bestFillerScore = score;
+                                bestFillerMovie = movie;
+                            }
+                        }
+
+                        if(bestFillerMovie){
+                            const movie = bestFillerMovie;
+                            const startTime = Math.ceil(currentTime / 5) * 5;
+                            newShows.push({
+                                id: crypto.randomUUID(),
+                                cinemaId: cinema.id,
+                                screenId: screen.id,
+                                movieId: movie.id,
+                                title: movie.title,
+                                duration: movie.duration,
+                                format: movie.format,
+                                tat: movie.tat || 15,
+                                startTime: startTime
+                            });
+                            screenTimelines[screen.id] = startTime + movie.duration + (movie.tat || 15);
+                            showAddedInThisPass = true;
+                        }
+                    }
+                     if (!showAddedInThisPass) {
+                        break;
+                    }
+                }
+
+
                 if (placedShowsCount < totalShowsToPlace && iterationGuard >= maxIterations) {
-                     setAlertInfo({ isOpen: true, title: "Scheduling Error", message: `Scheduling timed out. ${placedShowsCount} of ${totalShowsToPlace} shows were scheduled.` });
-                } else if (placedShowsCount === totalShowsToPlace) {
+                     setAlertInfo({ isOpen: true, title: "Scheduling Error", message: `Scheduling timed out during allocation phase. ${placedShowsCount} of ${totalShowsToPlace} shows were scheduled.` });
+                } else {
                      setAlertInfo({ isOpen: true, title: "Scheduling Complete", message: `Algorithm has generated a schedule with ${newShows.length} shows.` });
                 }
 
@@ -1966,244 +2320,270 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                 setIsAlgoScheduling(false);
             };
 
-            const handleExportAllSchedules = async () => {
+            const handleExportAllSchedules = () => {
                 setIsExporting(true);
                 try {
-                    const allCinemas = cinemas;
-                    const allMovies = movies;
-                    const allShows = shows;
+                    const movieMap = new Map(movies.map(m => [m.id, m]));
+                    const dataByCinemaAndMovie = {};
 
-                    const moviesMap = new Map(allMovies.map(m => [m.id, m]));
+                    shows.forEach(show => {
+                        const cinemaName = cinemas.find(c => c.id === show.cinemaId)?.name || 'Unknown Cinema';
+                        const movie = movieMap.get(show.movieId);
+                        if (!movie) return;
 
-                    // Group shows by Cinema Name and Movie Title, consolidating showtimes
-                    const consolidatedShows = {}; // { cinemaName: { movieTitle: [showtime1, showtime2, ...], ... }, ... }
-
-                    allShows.forEach(show => {
-                        const cinema = allCinemas.find(c => c.id === show.cinemaId);
-                        const movie = moviesMap.get(show.movieId);
-
-                        if (cinema && movie) {
-                            const cinemaName = cinema.name;
-                            const movieTitle = movie.title;
-
-                            if (!consolidatedShows[cinemaName]) {
-                                consolidatedShows[cinemaName] = {};
-                            }
-                            if (!consolidatedShows[cinemaName][movieTitle]) {
-                                consolidatedShows[cinemaName][movieTitle] = [];
-                            }
-                            consolidatedShows[cinemaName][movieTitle].push(show.startTime);
+                        const key = `${cinemaName}|${movie.title} (${movie.censorRating}) (${movie.format})`;
+                        if (!dataByCinemaAndMovie[key]) {
+                            dataByCinemaAndMovie[key] = {
+                                location: cinemaName,
+                                movie: `${movie.title} (${movie.censorRating}) (${movie.format})`,
+                                timings: []
+                            };
                         }
+                        dataByCinemaAndMovie[key].timings.push(show.startTime);
                     });
 
-                    let maxShowtimes = 0;
-                    for (const cinemaName in consolidatedShows) {
-                        for (const movieTitle in consolidatedShows[cinemaName]) {
-                            consolidatedShows[cinemaName][movieTitle].sort((a, b) => a - b); // Sort showtimes numerically
-                            maxShowtimes = Math.max(maxShowtimes, consolidatedShows[cinemaName][movieTitle].length);
-                        }
-                    }
+                    let csvContent = `Location,Movie,Timing,Timing,Timing,Timing,Timing,Timing,Timing,Timing,Timing,Timing,Timing,Timing\n`;
+                    
+                    Object.values(dataByCinemaAndMovie).forEach(row => {
+                        row.timings.sort((a,b) => a - b);
+                        const timingsRow = row.timings.map(t => minutesToTime(t)).join(',');
+                        csvContent += `"${row.location}","${row.movie}",${timingsRow}\n`;
+                    });
 
-                    const csvRows = [];
-                    const header = ["Cinema Name", "Movie Title"];
-                    for (let i = 1; i <= maxShowtimes; i++) {
-                        header.push(`Showtime ${i}`);
-                    }
-                    csvRows.push(header);
-
-                    // Populate CSV rows
-                    for (const cinemaName in consolidatedShows) {
-                        for (const movieTitle in consolidatedShows[cinemaName]) {
-                            const showtimes = consolidatedShows[cinemaName][movieTitle];
-                            const row = [cinemaName, movieTitle];
-                            showtimes.forEach(time => row.push(minutesToTime(time)));
-                            // Pad with empty strings if fewer showtimes than max
-                            while (row.length < header.length) {
-                                row.push('');
-                            }
-                            csvRows.push(row);
-                        }
-                    }
-
-                    downloadCSV(Papa.unparse(csvRows), 'all_cinema_schedules.csv');
+                    downloadCSV(csvContent, 'full_schedule_export.csv');
 
                 } catch (error) {
-                    console.error("Error exporting schedules:", error);
-                    setAlertInfo({ isOpen: true, title: "Export Error", message: `Failed to export schedules: ${error.message}` });
+                    console.error("Error exporting data:", error);
+                    setAlertInfo({isOpen: true, title: "Export Error", message: "Could not export data."});
                 } finally {
                     setIsExporting(false);
                 }
             };
 
             const handleDownloadSelectedOpsSchedules = (selectedCinemaIds) => {
-                if (selectedCinemaIds.length === 0) {
-                    setAlertInfo({ isOpen: true, title: "Export Error", message: "Please select at least one cinema to download." });
-                    return;
-                }
                 setIsDownloadingOps(true);
                 try {
-                    const moviesMap = new Map(movies.map(m => [m.id, m]));
-                    const allCsvRows = [];
+                    const selectedCinemas = cinemas.filter(c => selectedCinemaIds.includes(c.id));
+                    const movieMap = new Map(movies.map(m => [m.id, m]));
+                    
+                    let xmlContent = `
+                        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                        <head>
+                            <meta charset="UTF-8">
+                            <!--[if gte mso 9]>
+                            <xml>
+                                <x:ExcelWorkbook>
+                                    <x:ExcelWorksheets>
+                                        <x:ExcelWorksheet>
+                                            <x:Name>Schedule</x:Name>
+                                            <x:WorksheetOptions>
+                                                <x:DisplayGridlines/>
+                                            </x:WorksheetOptions>
+                                        </x:ExcelWorksheet>
+                                    </x:ExcelWorksheets>
+                                </x:ExcelWorkbook>
+                            </xml>
+                            <![endif]-->
+                            <style>
+                                table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10px; }
+                                th, td { border: 1px solid black; padding: 3px; text-align: center; }
+                                .header-row { background-color: #D9D9D9; font-weight: bold; }
+                                .show-row { background-color: #FDE698; }
+                                .cinema-title { font-family: Arial, sans-serif; font-weight: bold; text-transform: uppercase; margin-top: 10px; margin-bottom: 5px; font-size: 12px; }
+                            </style>
+                        </head>
+                        <body>
+                    `;
 
-                    selectedCinemaIds.forEach((cinemaId, index) => {
-                        const cinema = cinemas.find(c => c.id === cinemaId);
-                        if (!cinema) return;
+                    selectedCinemas.forEach(cinema => {
+                        const showsForCinema = shows.filter(s => s.cinemaId === cinema.id);
+                        if (showsForCinema.length === 0) return;
 
-                        if (index > 0) {
-                            allCsvRows.push([]); // Add a separator row
-                        }
-                        
-                        allCsvRows.push([`${cinema.name}`]);
-
-                        const screens = [...cinema.screens].sort((a, b) => a.name.localeCompare(b.name));
-                        const showsByScreen = screens.map(screen => {
-                            return shows
+                        const showsByScreen = cinema.screens.reduce((acc, screen) => {
+                            acc[screen.id] = showsForCinema
                                 .filter(show => show.screenId === screen.id)
                                 .sort((a, b) => a.startTime - b.startTime);
+                            return acc;
+                        }, {});
+
+                        const maxShows = Math.max(0, ...Object.values(showsByScreen).map(s => s.length));
+                        if (maxShows === 0) return;
+                        
+                        xmlContent += `<div class="cinema-title">${cinema.name}</div>`;
+                        xmlContent += `<table><thead><tr class="header-row"><th rowspan="2">Session</th>`;
+                        cinema.screens.forEach(screen => {
+                            xmlContent += `<th colspan="2">${screen.name}</th>`;
                         });
-
-                        const maxShowCount = Math.max(0, ...showsByScreen.map(s => s.length));
-
-                        // Header Row
-                        const header = ['Session'];
-                        screens.forEach(screen => {
-                            header.push(screen.name, 'Time');
+                        xmlContent += `</tr><tr class="header-row">`;
+                        cinema.screens.forEach(screen => {
+                            xmlContent += `<td>Start</td><td>Time</td>`;
                         });
-                        allCsvRows.push(header);
+                        xmlContent += `</tr></thead><tbody>`;
 
-                        // Show Data Rows
-                        const ordinal = (n) => {
-                            const s = ["th", "st", "nd", "rd"], v = n % 100;
-                            return n + (s[(v - 20) % 10] || s[v] || s[0]);
-                        };
+                        for (let i = 0; i < maxShows; i++) {
+                            const sessionNumber = i + 1;
+                            let sessionSuffix;
+                            if (sessionNumber === 1) sessionSuffix = 'st';
+                            else if (sessionNumber === 2) sessionSuffix = 'nd';
+                            else if (sessionNumber === 3) sessionSuffix = 'rd';
+                            else sessionSuffix = 'th';
 
-                        for (let i = 0; i < maxShowCount; i++) {
-                            const row = [ordinal(i + 1)];
-                            screens.forEach((screen, screenIndex) => {
-                                const show = showsByScreen[screenIndex][i];
+                            xmlContent += `<tr class="show-row">`;
+                            xmlContent += `<td style="font-weight: bold;">${sessionNumber}${sessionSuffix}</td>`;
+                            
+                            cinema.screens.forEach(screen => {
+                                const show = showsByScreen[screen.id]?.[i];
                                 if (show) {
-                                    const movie = moviesMap.get(show.movieId);
-                                    const movieTitle = movie ? `${movie.title} (${movie.format}) (${movie.censorRating || 'N/A'})` : 'Unknown Movie';
-                                    row.push(movieTitle, minutesToTime(show.startTime));
+                                    const movie = movieMap.get(show.movieId);
+                                    const movieText = movie ? `${movie.title.toUpperCase()} (${movie.censorRating || 'U/A'}) (${movie.format || '2D'})` : 'N/A';
+                                    const timeText = minutesToTime(show.startTime);
+                                    xmlContent += `<td>${movieText}</td><td>${timeText}</td>`;
                                 } else {
-                                    row.push('', '');
+                                    xmlContent += `<td></td><td></td>`;
                                 }
                             });
-                            allCsvRows.push(row);
+                            xmlContent += `</tr>`;
                         }
+                        xmlContent += `<tr class="show-row"><td></td>`;
+                        cinema.screens.forEach(() => {
+                            xmlContent += `<td style="font-weight: bold;">END</td><td></td>`;
+                        });
+                        xmlContent += `</tr></tbody></table><br/>`;
                     });
 
-                    const csv = Papa.unparse(allCsvRows);
-                    downloadCSV(csv, `consolidated_ops_schedule.csv`);
-                    setIsOpsDownloadModalOpen(false);
+                    xmlContent += `</body></html>`;
+                    downloadFile(xmlContent, 'operations_schedule.xls', 'application/vnd.ms-excel');
 
                 } catch (error) {
-                    console.error("Error generating consolidated ops schedule:", error);
-                    setAlertInfo({ isOpen: true, title: "Export Error", message: `Failed to generate schedule: ${error.message}` });
+                    console.error("Error downloading ops schedule:", error);
+                    setAlertInfo({isOpen: true, title: "Download Error", message: "Could not generate the operations schedule."});
                 } finally {
                     setIsDownloadingOps(false);
+                    setIsOpsDownloadModalOpen(false);
                 }
             };
 
             const handleClearAllData = () => {
-                // Clear all data from local storage
                 window.localStorage.removeItem('showtime_manager_state');
-                
-                // Reload the page to reset the state
                 window.location.reload();
             };
-
             const handleClearSchedule = () => {
                 if (!selectedCinema) return;
                 setState({...state, shows: state.shows.filter(s => s.cinemaId !== selectedCinema.id)});
                 setIsClearScheduleModalOpen(false);
             };
 
-            // This useEffect handles global keyboard shortcuts for grid navigation, copy, paste, and delete.
+            const handleTimeEditStart = (screenId, sessionIndex) => {
+                if (screenId === null) {
+                    setIsTimeEditing(false);
+                } else {
+                    setActiveCell({ screenId, sessionIndex });
+                    setIsTimeEditing(true);
+                }
+            };
+
             React.useEffect(() => {
                 const handleKeyDown = (e) => {
                     const activeElement = document.activeElement;
-                    if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
-                        if (e.ctrlKey && e.key === 'z') {
-                            e.preventDefault();
-                            undo();
+                    const isTyping = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
+                    const isModalOpen = isAddCinemaModalOpen || isEditModalOpen || isDeleteModalOpen || isUploadCinemaModalOpen || isAddMovieModalOpen || isUploadMoviesModalOpen || isUploadScheduleModalOpen || isAllocationModalOpen || isBulkAllocationModalOpen || isScheduleListModalOpen || isOpsDownloadModalOpen || isSwapModalOpen || isClearDataModalOpen || isClearScheduleModalOpen || isEmailDraftModalOpen;
+
+                    if (e.key === 'Escape') {
+                        if (isModalOpen) {
+                            if (isDeleteModalOpen) setDeleteModalOpen(false);
+                            else if (isClearDataModalOpen) setIsClearDataModalOpen(false);
+                            else if (isClearScheduleModalOpen) setIsClearScheduleModalOpen(false);
+                            else if (isSwapModalOpen) setIsSwapModalOpen(false);
+                            else if (isOpsDownloadModalOpen) setIsOpsDownloadModalOpen(false);
+                            else if (isScheduleListModalOpen) setScheduleListModalOpen(false);
+                            else if (isBulkAllocationModalOpen) setBulkAllocationModalOpen(false);
+                            else if (isAllocationModalOpen) setAllocationModalOpen(false);
+                            else if (isUploadScheduleModalOpen) setUploadScheduleModalOpen(false);
+                            else if (isUploadMoviesModalOpen) setUploadMoviesModalOpen(false);
+                            else if (isUploadCinemaModalOpen) setUploadCinemaModalOpen(false);
+                            else if (isAddMovieModalOpen) setAddMovieModalOpen(false);
+                            else if (isEditModalOpen) setEditModalOpen(false);
+                            else if (isAddCinemaModalOpen) setAddCinemaModalOpen(false);
+                            else if (isEmailDraftModalOpen) setEmailDraftModalOpen(false);
+                            return;
+                        } else if (activeCell.screenId) {
+                            setActiveCell({ screenId: null, sessionIndex: null });
+                            return;
                         }
-                        if (e.ctrlKey && e.key === 'y') {
-                            e.preventDefault();
-                            redo();
-                        }
-                        return;
                     }
                     
-                    if (!activeCell.screenId || !selectedCinema) return;
+                    if ((e.ctrlKey || e.metaKey)) {
+                        if (e.key === 'z') { e.preventDefault(); undo(); }
+                        if (e.key === 'y') { e.preventDefault(); redo(); }
+                    }
+
+                    if (isTyping || isModalOpen || !activeCell.screenId || !selectedCinema || isDropdownOpen || isTimeEditing) {
+                        return;
+                    }
 
                     const showsForCinema = shows.filter(s => s.cinemaId === selectedCinema.id);
                     const showsOnActiveScreen = showsForCinema
                         .filter(sh => sh.screenId === activeCell.screenId)
                         .sort((a,b) => a.startTime - b.startTime);
-                    
                     const activeShow = showsOnActiveScreen[activeCell.sessionIndex];
 
-                    if (e.ctrlKey && (e.key === 'c' || e.key === 'x')) {
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x')) {
                         if (activeShow) {
                             setClipboard({ movieId: activeShow.movieId });
-                            if (e.key === 'x') {
-                                handleDeleteShow(activeShow.id);
-                            }
+                            if (e.key === 'x') handleDeleteShow(activeShow.id);
                         }
-                    } 
-                    else if (e.ctrlKey && e.key === 'v') {
+                    } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
                         if (clipboard) {
                             const movieToPaste = movies.find(m => m.id === clipboard.movieId);
-                            if (movieToPaste) {
-                                handleShowMove({ type: 'new', data: movieToPaste }, activeCell.screenId, activeCell.sessionIndex);
-                            }
+                            if (movieToPaste) handleShowMove({ type: 'new', data: movieToPaste }, activeCell.screenId, activeCell.sessionIndex);
                         }
-                    } 
-                    else if (e.key === 'Delete' || e.key === 'Backspace') {
-                        if (activeShow) {
-                            handleDeleteShow(activeShow.id);
+                    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                        if (activeShow) handleDeleteShow(activeShow.id);
+                    } else if (e.key === 'F2' && activeShow) {
+                        handleTimeEditStart(activeCell.screenId, activeCell.sessionIndex);
+                    } else {
+                        const screenIds = selectedCinema.screens.map(s => s.id);
+                        const currentScreenIndex = screenIds.indexOf(activeCell.screenId);
+                        let { screenId, sessionIndex } = activeCell;
+                        
+                        const maxShowsOnAnyScreen = Math.max(0, ...Object.values(shows.reduce((acc, show) => {
+                            acc[show.screenId] = (acc[show.screenId] || 0) + 1; return acc;
+                        }, {})).map(count => count));
+                        const maxGridRows = Math.max(10, maxShowsOnAnyScreen + 1);
+
+                        let shouldPreventDefault = true;
+                        switch (e.key) {
+                            case 'ArrowUp': sessionIndex = Math.max(0, activeCell.sessionIndex - 1); break;
+                            case 'ArrowDown': sessionIndex = Math.min(maxGridRows - 1, activeCell.sessionIndex + 1); break;
+                            case 'Enter': sessionIndex = Math.min(maxGridRows - 1, activeCell.sessionIndex + 1); break;
+                            case 'ArrowLeft': if (currentScreenIndex > 0) screenId = screenIds[currentScreenIndex - 1]; break;
+                            case 'ArrowRight': if (currentScreenIndex < screenIds.length - 1) screenId = screenIds[currentScreenIndex + 1]; break;
+                            case 'Tab':
+                                let nextScreenIndex = e.shiftKey ? currentScreenIndex - 1 : currentScreenIndex + 1;
+                                if (nextScreenIndex >= 0 && nextScreenIndex < screenIds.length) {
+                                    screenId = screenIds[nextScreenIndex];
+                                } else {
+                                    screenId = e.shiftKey ? screenIds[screenIds.length - 1] : screenIds[0];
+                                }
+                                break;
+                            case 'Home': sessionIndex = 0; break;
+                            case 'End':
+                                 const showsOnCurrentScreen = shows.filter(s => s.screenId === activeCell.screenId);
+                                 sessionIndex = showsOnCurrentScreen.length;
+                                 break;
+                            default: shouldPreventDefault = false;
+                        }
+                        
+                        if (shouldPreventDefault) {
+                            e.preventDefault();
+                            setActiveCell({ screenId, sessionIndex });
                         }
                     }
-
-                    // --- Navigation Logic ---
-                    const screenIds = selectedCinema.screens.map(s => s.id);
-                    const currentScreenIndex = screenIds.indexOf(activeCell.screenId);
-                    let { screenId, sessionIndex } = activeCell;
-
-                    switch (e.key) {
-                        case 'ArrowUp':
-                            sessionIndex = Math.max(0, activeCell.sessionIndex - 1);
-                            break;
-                        case 'ArrowDown':
-                        case 'Enter':
-                            const maxShows = Math.max(0, ...Object.values(shows.reduce((acc, show) => {
-                                acc[show.screenId] = (acc[show.screenId] || 0) + 1;
-                                return acc;
-                            }, {})).map(count => count));
-                            sessionIndex = Math.min(Math.max(10, maxShows), activeCell.sessionIndex + 1);
-                            break;
-                        case 'ArrowLeft':
-                            if (currentScreenIndex > 0) {
-                                screenId = screenIds[currentScreenIndex - 1];
-                            }
-                            break;
-                        case 'ArrowRight':
-                            if (currentScreenIndex < screenIds.length - 1) {
-                                screenId = screenIds[currentScreenIndex + 1];
-                            }
-                            break;
-                        default:
-                            return; // Do nothing for other keys
-                    }
-                    
-                    e.preventDefault(); 
-                    setActiveCell({ screenId, sessionIndex });
                 };
 
                 window.addEventListener('keydown', handleKeyDown);
                 return () => window.removeEventListener('keydown', handleKeyDown);
-            }, [activeCell, shows, selectedCinema, clipboard, movies, undo, redo]);
+            }, [activeCell, shows, selectedCinema, clipboard, movies, undo, redo, isDropdownOpen, isTimeEditing, isAddCinemaModalOpen, isEditModalOpen, isDeleteModalOpen, isUploadCinemaModalOpen, isAddMovieModalOpen, isUploadMoviesModalOpen, isUploadScheduleModalOpen, isAllocationModalOpen, isBulkAllocationModalOpen, isScheduleListModalOpen, isOpsDownloadModalOpen, isSwapModalOpen, isClearDataModalOpen, isClearScheduleModalOpen, isEmailDraftModalOpen]);
 
 
             return (
@@ -2216,6 +2596,28 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                                     <select id="cinema-select" value={selectedCinema?.id || ''} onChange={(e) => setSelectedCinema(cinemas.find(c => c.id === e.target.value))} className="block w-48 pl-2 pr-8 py-0.5 text-xs border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 rounded-md dark:bg-gray-900 dark:border-gray-600">
                                         {cinemas.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
+                                    
+                                    {/* NEW: Session Start Time Selector */}
+                                    {selectedCinema && scheduleStartTime !== null && (
+                                        <div className="flex items-center space-x-1">
+                                            <label htmlFor="start-time-select" className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">Start Time:</label>
+                                            <select 
+                                                id="start-time-select" 
+                                                value={scheduleStartTime} 
+                                                onChange={(e) => setScheduleStartTime(Number(e.target.value))}
+                                                className="block w-24 pl-2 pr-8 py-0.5 text-xs border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 rounded-md dark:bg-gray-900 dark:border-gray-600"
+                                            >
+                                                {Array.from({ length: (13 - 5) * 4 + 1 }).map((_, i) => {
+                                                    const totalMinutes = (5 * 60) + (i * 15);
+                                                    return <option key={totalMinutes} value={totalMinutes}>{minutesToTime(totalMinutes)}</option>
+                                                })}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="p-1.5 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">
+                                        {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+                                    </button>
                                 </div>
                                 <div className="flex items-center flex-wrap justify-end gap-2">
                                     <button onClick={undo} disabled={!canUndo} className="px-2 py-0.5 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"><UndoIcon size={12} className="mr-1"/> Undo</button>
@@ -2223,6 +2625,7 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                                     <button onClick={() => setIsSwapModalOpen(true)} className="px-2 py-0.5 text-xs font-medium text-white bg-gray-600 rounded-md hover:bg-gray-700 flex items-center"><RefreshCwIcon size={12} className="mr-1"/> Swap Screens</button>
                                     <button onClick={() => setAddCinemaModalOpen(true)} className="px-2 py-0.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 flex items-center"><PlusIcon size={12} className="mr-1"/> Cinema</button>
                                     <button onClick={() => setUploadCinemaModalOpen(true)} className="px-2 py-0.5 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 flex items-center"><UploadIcon size={12} className="mr-1"/> Cinemas</button>
+                                    <button onClick={() => setUploadScheduleModalOpen(true)} className="px-2 py-0.5 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 flex items-center"><UploadIcon size={12} className="mr-1"/> Upload Schedule</button>
                                     <button onClick={() => setBulkAllocationModalOpen(true)} className="px-2 py-0.5 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 flex items-center"><UploadIcon size={12} className="mr-1"/> Allocations</button>
                                     <label className="px-2 py-0.5 text-xs font-medium text-white bg-gray-600 rounded-md hover:bg-gray-700 flex items-center cursor-pointer">
                                         <ImageIcon size={12} className="mr-1"/> Upload Examples
@@ -2238,11 +2641,14 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                                         <Trash2Icon size={12} className="mr-1"/> Clear Schedule
                                     </button>
                                     <button onClick={() => setScheduleListModalOpen(true)} className="px-2 py-0.5 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 flex items-center"><FilmIcon size={12} className="mr-1"/> View List</button>
-                                    <button onClick={() => setIsOpsDownloadModalOpen(true)} disabled={isDownloadingOps} className="px-2 py-0.5 text-xs font-medium text-white bg-teal-600 rounded-md hover:bg-teal-700 flex items-center disabled:bg-teal-400">
-                                        <DownloadIcon size={12} className="mr-1"/> {isDownloadingOps ? 'Downloading...' : 'Download Ops Schedule'}
+                                    <button onClick={() => setIsOpsDownloadModalOpen(true)} disabled={cinemas.length === 0} className="px-2 py-0.5 text-xs font-medium text-white bg-teal-600 rounded-md hover:bg-teal-700 flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                                        <DownloadIcon size={12} className="mr-1"/> Download Ops Schedule
                                     </button>
-                                    <button onClick={handleExportAllSchedules} disabled={isExporting} className="px-2 py-0.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 flex items-center disabled:bg-blue-400">
-                                        <DownloadIcon size={12} className="mr-1"/> {isExporting ? 'Exporting...' : 'Export All'}
+                                     <button onClick={() => setEmailDraftModalOpen(true)} disabled={cinemas.length === 0} className="px-2 py-0.5 text-xs font-medium text-white bg-sky-600 rounded-md hover:bg-sky-700 flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                                        <MailIcon size={12} className="mr-1"/> Draft Email
+                                    </button>
+                                    <button onClick={handleExportAllSchedules} disabled={cinemas.length === 0 && movies.length === 0} className="px-2 py-0.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                                        <DownloadIcon size={12} className="mr-1"/> Export All
                                     </button>
                                     <button onClick={() => setIsClearDataModalOpen(true)} className="px-2 py-0.5 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700 flex items-center">
                                         <Trash2Icon size={12} className="mr-1"/> Clear All Data
@@ -2267,42 +2673,40 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
 
                             <div className="flex flex-1 overflow-hidden">
                                 <div className="w-4/5 flex flex-col">
-                                    {loading ? <div className="flex-1 flex items-center justify-center"><p>Loading...</p></div> : (
-                                        <ExcelScheduler 
-                                            cinema={selectedCinema} 
-                                            shows={shows} 
-                                            movies={movies}
-                                            onShowMove={handleShowMove}
-                                            onShowMovieChange={handleShowMovieChange}
-                                            onShowTimeChange={handleShowTimeChange}
-                                            onDeleteShow={handleDeleteShow}
-                                            setDraggedItem={setDraggedItem}
-                                            draggedItem={draggedItem}
-                                            onDeselect={() => setActiveCell({ screenId: null, sessionIndex: null })}
-                                            activeCell={activeCell}
-                                            setActiveCell={setActiveCell}
-                                            onDropdownOpenChange={setIsDropdownOpen}
-                                            setIsTimeEditing={setIsTimeEditing}
-                                            onTimeHover={(e, show) => {
-                                                if (show) {
-                                                    setTooltip({ show, position: { x: e.clientX, y: e.clientY } });
-                                                } else {
-                                                    setTooltip({ show: null, position: null });
-                                                }
-                                            }}
-                                        />
-                                    )}
+                                    <ExcelScheduler 
+                                        cinema={selectedCinema} 
+                                        shows={shows} 
+                                        movies={movies}
+                                        onShowMove={handleShowMove}
+                                        onShowMovieChange={handleShowMovieChange}
+                                        onShowTimeChange={handleShowTimeChange}
+                                        onDeleteShow={handleDeleteShow}
+                                        setDraggedItem={setDraggedItem}
+                                        draggedItem={draggedItem}
+                                        onDeselect={() => setActiveCell({ screenId: null, sessionIndex: null })}
+                                        activeCell={activeCell}
+                                        setActiveCell={setActiveCell}
+                                        onDropdownOpenChange={setIsDropdownOpen}
+                                        isTimeEditing={isTimeEditing}
+                                        onTimeEditStart={handleTimeEditStart}
+                                        onTimeHover={(e, show) => {
+                                            if (show) setTooltip({ show, position: { x: e.clientX, y: e.clientY } });
+                                            else setTooltip({ show: null, position: null });
+                                        }}
+                                    />
                                 </div>
-                                <FilmStock movies={movies} onAddMovieClick={() => setAddMovieModalOpen(true)} onUploadMoviesClick={() => setUploadMoviesModalOpen(true)} onDeleteMovie={handleDeleteShow} setDraggedItem={setDraggedItem} />
+                                <FilmStock movies={movies} onAddMovieClick={() => setAddMovieModalOpen(true)} onUploadMoviesClick={() => setUploadMoviesModalOpen(true)} onDeleteMovie={handleDeleteMovie} setDraggedItem={setDraggedItem} />
                             </div>
                         </main>
                     </div>
+                    {/* All modals are rendered here */}
                     <Tooltip show={tooltip.show} position={tooltip.position} />
                     <Modal isOpen={isAddCinemaModalOpen} onClose={() => setAddCinemaModalOpen(false)} title="Add New Cinema"><CinemaForm onSave={handleAddCinema} onCancel={() => setAddCinemaModalOpen(false)} /></Modal>
                     <Modal isOpen={isEditModalOpen} onClose={() => setEditModalOpen(false)} title="Edit Cinema"><CinemaForm initialData={cinemaToEdit} onSave={handleUpdateCinema} onCancel={() => setEditModalOpen(false)} /></Modal>
                     <Modal isOpen={isUploadCinemaModalOpen} onClose={() => setUploadCinemaModalOpen(false)} title="Upload Cinemas"><UploadCSVForm itemType="Cinemas" onSave={handleAddCinemasCSV} onCancel={() => setUploadCinemaModalOpen(false)} /></Modal>
                     <Modal isOpen={isAddMovieModalOpen} onClose={() => setAddMovieModalOpen(false)} title="Add New Movie"><AddMovieForm onSave={handleAddMovie} onCancel={() => setAddMovieModalOpen(false)} /></Modal>
                     <Modal isOpen={isUploadMoviesModalOpen} onClose={() => setUploadMoviesModalOpen(false)} title="Upload Movies"><UploadCSVForm itemType="Movies" onSave={handleAddMoviesCSV} onCancel={() => setUploadMoviesModalOpen(false)} /></Modal>
+                    <UploadScheduleModal isOpen={isUploadScheduleModalOpen} onClose={() => setUploadScheduleModalOpen(false)} onSave={handleUploadSchedule} movies={movies} cinema={selectedCinema} />
                     <AllocationModal isOpen={isAllocationModalOpen} onClose={() => setAllocationModalOpen(false)} movies={movies} initialAllocations={selectedCinema ? (plannedAllocations[selectedCinema.id] || {}) : {}} onSave={handleSaveAllocations} />
                     <BulkAllocationModal isOpen={isBulkAllocationModalOpen} onClose={() => setBulkAllocationModalOpen(false)} movies={movies} cinemas={cinemas} onSave={handleBulkSaveAllocations} />
                     <OpsDownloadModal isOpen={isOpsDownloadModalOpen} onClose={() => setIsOpsDownloadModalOpen(false)} cinemas={cinemas} onDownload={handleDownloadSelectedOpsSchedules} />
@@ -2326,21 +2730,20 @@ Generate the final schedule as a valid JSON array of show objects. Each object m
                     />
                     <CustomAlertModal isOpen={alertInfo.isOpen} onClose={() => setAlertInfo({ isOpen: false })} title={alertInfo.title} message={alertInfo.message} />
                     <ScheduleListModal isOpen={isScheduleListModalOpen} onClose={() => setScheduleListModalOpen(false)} cinema={selectedCinema} movies={movies} shows={shows} />
+                    <EmailDraftModal 
+                        isOpen={isEmailDraftModalOpen} 
+                        onClose={() => setEmailDraftModalOpen(false)} 
+                        allCinemas={cinemas}
+                        allShows={shows}
+                        allMovies={movies}
+                    />
                 </>
             );
         };
 
-        // Main App rendering
-        const App = () => {
-            return (
-                <MainApp />
-            );
-        }
-
-        // Render the React App
+        const App = () => <MainApp />;
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-
     </script>
 </body>
 </html>
