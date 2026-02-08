@@ -2730,12 +2730,13 @@ Return a valid JSON array of show objects. Each object must have "movieId", "scr
                     />
                     <CustomAlertModal isOpen={alertInfo.isOpen} onClose={() => setAlertInfo({ isOpen: false })} title={alertInfo.title} message={alertInfo.message} />
                     <ScheduleListModal isOpen={isScheduleListModalOpen} onClose={() => setScheduleListModalOpen(false)} cinema={selectedCinema} movies={movies} shows={shows} />
-                    <EmailDraftModal 
-                        isOpen={isEmailDraftModalOpen} 
-                        onClose={() => setEmailDraftModalOpen(false)} 
+                    <EmailDraftModal
+                        isOpen={isEmailDraftModalOpen}
+                        onClose={() => setEmailDraftModalOpen(false)}
                         allCinemas={cinemas}
                         allShows={shows}
                         allMovies={movies}
+                        showAlert={(title, message) => setAlertInfo({ isOpen: true, title, message })}
                     />
                 </>
             );
